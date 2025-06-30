@@ -1,0 +1,39 @@
+BasedOnStyle: Google
+IndentWidth: 4
+
+BreakInheritanceList: AfterColon
+ColumnLimit: 0
+
+Cpp11BracedListStyle: false
+
+AccessModifierOffset: -4
+AlignArrayOfStructures: Left
+
+AlignConsecutiveShortCaseStatements:
+  Enabled: true
+
+AlignConsecutiveBitFields:
+  Enabled: true
+
+AlignConsecutiveAssignments:
+  Enabled: true
+
+SpaceBeforeParens: Never
+
+PointerAlignment: Left
+DerivePointerAlignment: false
+
+AllowShortIfStatementsOnASingleLine: WithoutElse
+
+BraceWrapping:
+  BeforeElse: true
+
+BreakBeforeBraces: Custom
+
+IndentCaseLabels: false
+AllowShortCaseLabelsOnASingleLine: true
+
+AlignAfterOpenBracket: BlockIndent
+
+BreakConstructorInitializers: BeforeComma
+PackConstructorInitializers: Never
