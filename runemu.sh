@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
 
 ./build.sh
-azahar ./build/SaveSync.3dsx
+if [[ $? == 0 ]]; then
+    azahar ./build/SaveSync.3dsx
+fi

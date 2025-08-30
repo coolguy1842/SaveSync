@@ -9,7 +9,13 @@ include(${DEVKITPRO}/cmake/Platform/Nintendo3DS.cmake)
 project(SaveSync LANGUAGES C CXX ASM)
 
 add_executable(${PROJECT_NAME}
+	source/settings.cpp
+	source/httpHandler.cpp
+	source/archive.cpp
+	source/directory.cpp
 	source/smdh.cpp
+	source/loader.cpp
+	source/client.cpp
 	source/main.cpp
 )
 
