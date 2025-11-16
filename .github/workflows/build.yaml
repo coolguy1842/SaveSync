@@ -14,9 +14,6 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
-      - name: Mark ownership safe
-        run: git config --global --add safe.directory "${{ github.workspace }}"
-        
       - name: Download makerom
         continue-on-error: true
         run: |
@@ -34,17 +31,18 @@ jobs:
       - name: Configure
         uses: docker://devkitpro/devkitarm
         with:
-          args: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          args: bash -c 'git config --global --add safe.directory "${{ github.workspace }}" && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release'
 
       - name: Build
         uses: docker://devkitpro/devkitarm
         with:
-          args: cmake --build build
+          args: bash -c 'git config --global --add safe.directory "${{ github.workspace }}" && cmake --build build'
 
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          body: Automated Artifacts Built from Master
+          prerelease: true
+          body: Automated artifacts from master
           files: |
             build/SaveSync.3dsx
             build/SaveSync.cia
