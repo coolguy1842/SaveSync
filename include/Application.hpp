@@ -62,10 +62,11 @@ private:
     PrintConsole m_console;
     std::array<u16, TOP_SCREEN_WIDTH * TOP_SCREEN_HEIGHT> m_dummyTopFramebuffer;
     std::array<u16, BOTTOM_SCREEN_WIDTH * BOTTOM_SCREEN_HEIGHT> m_dummyBottomFramebuffer;
-#endif
+
 #ifdef REDIRECT_CONSOLE
     int stdoutDup;
     int stderrDup;
+#endif
 #endif
 };
 

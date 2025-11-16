@@ -4,10 +4,12 @@
 
 Result invalidResult() { return MAKERESULT(RL_REINITIALIZE, RS_INVALIDSTATE, RM_APPLICATION, RD_INVALID_HANDLE); }
 std::shared_ptr<Archive> Archive::open(FS_ArchiveID id, VarPath path) {
-    std::shared_ptr<Archive> out = std::shared_ptr<Archive>(new Archive(id, path.path));
-    out->m_instance              = std::weak_ptr<Archive>(out);
+    struct make_shared_enabler : public Archive {
+        make_shared_enabler(FS_ArchiveID id, FS_Path path)
+            : Archive(id, path) {}
+    };
 
-    return out;
+    return std::make_shared<make_shared_enabler>(id, path.path);
 }
 
 Archive::Archive(FS_ArchiveID id, FS_Path path)
@@ -62,8 +64,8 @@ bool Archive::mkdir(std::u16string path, u32 attributes, bool recursive) {
     return R_SUCCEEDED(m_lastResult) || R_SUMMARY(m_lastResult) == RS_NOP;
 }
 
-std::shared_ptr<Directory> Archive::openDirectory(std::u16string path) { return Directory::open(std::shared_ptr<Archive>(m_instance), path); }
-std::shared_ptr<File> Archive::openFile(VarPath path, u32 flags, u32 attributes) { return File::open(std::shared_ptr<Archive>(m_instance), path, flags, attributes); }
+std::shared_ptr<Directory> Archive::openDirectory(std::u16string path) { return Directory::open(shared_from_this(), path); }
+std::shared_ptr<File> Archive::openFile(VarPath path, u32 flags, u32 attributes) { return File::open(shared_from_this(), path, flags, attributes); }
 
 bool Archive::renameDirectory(VarPath oldPath, VarPath newPath) {
     CHECK_VALID
@@ -103,16 +105,4 @@ bool Archive::hasDirectory(std::u16string path) {
 bool Archive::hasFile(VarPath path) {
     auto file = openFile(path, FS_OPEN_READ, 0);
     return file != nullptr && file->valid();
-}
-
-u64 Archive::lastChanged(std::u16string path) {
-    CHECK_VALID
-
-    u64 timestamp = 0;
-    if(R_FAILED(m_lastResult = FSUSER_ControlArchive(m_handle, ARCHIVE_ACTION_GET_TIMESTAMP, path.data(), path.size(), &timestamp, sizeof(u64)))) {
-        return U64_MAX;
-    }
-
-    m_lastResult = RL_SUCCESS;
-    return timestamp;
 }

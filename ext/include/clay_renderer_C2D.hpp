@@ -1,7 +1,6 @@
 #ifndef __CLAY_RENDERER_C2D_HPP__
 #define __CLAY_RENDERER_C2D_HPP__
 
-// https://github.com/pvini07BR/3DSky used for help
 #include <citro2d.h>
 #include <clay.h>
 

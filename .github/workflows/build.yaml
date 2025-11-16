@@ -42,7 +42,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           prerelease: true
-          body: Automated artifacts from master
+          body: Automatic release from master
           files: |
             build/SaveSync.3dsx
             build/SaveSync.cia

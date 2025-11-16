@@ -58,7 +58,7 @@ target_compile_options(${PROJECT_NAME} PRIVATE
 	-Wall
 	-Wno-psabi
 
-	-pedantic
+	-pedantic-errors
 	-Wall
 	-Wextra
 	-Wcast-qual
@@ -80,6 +80,7 @@ target_compile_options(${PROJECT_NAME} PRIVATE
 	-Wundef
 	-Werror
 	-Wtrampolines
+	-Wmaybe-uninitialized
 	
 	-fstrict-flex-arrays=3
 	-Wno-missing-field-initializers

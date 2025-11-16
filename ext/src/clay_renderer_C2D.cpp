@@ -1,9 +1,5 @@
-#include <Util/LeakDetector.h>
 #include <clay_renderer_C2D.hpp>
-#include <md5.h>
 #include <memory>
-#include <stack>
-#include <string>
 #include <unordered_map>
 
 #define C2D_CLAY_COLOR(color) C2D_Color32(color.r, color.g, color.b, color.a);
@@ -21,18 +17,11 @@ constexpr uint32_t hashStr(const char* str, size_t len) {
 
 struct CacheEntry {
     C2D_Text text;
-    size_t textHash;
+    uint32_t textHash;
 };
 
-struct ScissorInfo {
-    Clay_BoundingBox scissor;
-    Clay_BoundingBox bounds;
-};
-
-//
 // key is clay id, use ptr to clear memory fully
 static std::unique_ptr<std::unordered_map<uint32_t, CacheEntry>> s_textCache;
-std::stack<ScissorInfo> s_scissors;
 
 void C2D_Clay_Init() {
     s_textCache = std::make_unique<std::unordered_map<uint32_t, CacheEntry>>();
@@ -54,9 +43,6 @@ void C2D_Clay_Exit() {
     }
 
     s_textCache.reset();
-    while(!s_scissors.empty()) {
-        s_scissors.pop();
-    }
 
     C2D_Fini();
     C3D_Fini();
@@ -82,21 +68,6 @@ void C2D_Clay_ScissorStart(gfxScreen_t screen, Clay_BoundingBox box, GPU_SCISSOR
     default: return;
     }
 
-    if(!s_scissors.empty()) {
-        Clay_BoundingBox parent = s_scissors.top().bounds;
-        if(C2D_Clay_Intersects(box, parent)) {
-            box = {
-                .x      = CLAY__MAX(box.x, parent.x),
-                .y      = CLAY__MAX(box.y, parent.y),
-                .width  = CLAY__MIN(box.width, parent.width),
-                .height = CLAY__MIN(box.height, parent.height),
-            };
-        }
-        else {
-            box = { 0, 0, 0, 0 };
-        }
-    }
-
     Clay_BoundingBox scissor = {
         height - box.height - box.y,
         width - box.width - box.x,
@@ -106,33 +77,11 @@ void C2D_Clay_ScissorStart(gfxScreen_t screen, Clay_BoundingBox box, GPU_SCISSOR
 
     C2D_Flush();
     C3D_SetScissor(mode, scissor.x, scissor.y, scissor.width, scissor.height);
-
-    s_scissors.push(ScissorInfo{ .scissor = scissor, .bounds = box });
 }
 
 void C2D_Clay_ScissorEnd() {
     C2D_Flush();
-
-    switch(s_scissors.size()) {
-    case 1:
-        s_scissors.pop();
-        // fall through
-    case 0:
-        C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
-
-        break;
-    default:
-        s_scissors.pop();
-
-        ScissorInfo info = s_scissors.top();
-        C3D_SetScissor(GPU_SCISSOR_NORMAL, info.scissor.x, info.scissor.y, info.scissor.width, info.scissor.height);
-
-        break;
-    }
-}
-
-bool C2D_Clay_InView(Clay_BoundingBox bounds) {
-    return s_scissors.empty() || C2D_Clay_Intersects(bounds, s_scissors.top().bounds);
+    C3D_SetScissor(GPU_SCISSOR_DISABLE, 0, 0, 0, 0);
 }
 
 const int NUM_CIRCLE_SEGMENTS = 16;
@@ -337,18 +286,12 @@ void C2D_Clay_RenderClayCommands(Clay_C2DRendererData* rendererData, Clay_Render
         switch(rcmd->commandType) {
         case CLAY_RENDER_COMMAND_TYPE_RECTANGLE: {
             Clay_RectangleRenderData* config = &rcmd->renderData.rectangle;
-            if(!C2D_Clay_InView(bounds)) {
-                break;
-            }
-
             C2D_Clay_Rect(bounds, config->cornerRadius, config->backgroundColor);
+
             break;
         }
         case CLAY_RENDER_COMMAND_TYPE_TEXT: {
             Clay_TextRenderData* config = &rcmd->renderData.text;
-            if(!C2D_Clay_InView(bounds)) {
-                break;
-            }
 
             C2D_Font font    = rendererData->fonts[config->fontId];
             FINF_s* fontInfo = C2D_FontGetInfo(font);
@@ -365,10 +308,17 @@ void C2D_Clay_RenderClayCommands(Clay_C2DRendererData* rendererData, Clay_Render
                 C2D_TextBuf buf = C2D_TextBufNew(len + 1);
                 C2D_Text text;
 
-                std::string str(contents, len);
-                if(C2D_TextFontParse(&text, font, buf, str.c_str()) == nullptr) {
-                    fprintf(stderr, "Failed to parse text: %s\n", str.c_str());
+                char* str = strndup(contents, len);
+                if(str == nullptr || C2D_TextFontParse(&text, font, buf, str) == nullptr) {
+                    if(str != nullptr) {
+                        fprintf(stderr, "Failed to parse text: %s\n", str);
+                    }
+
+                    free(str);
+                    break;
                 }
+
+                free(str);
 
                 C2D_TextOptimize(&text);
                 it = s_textCache->insert({ rcmd->id, { text, hash } }).first;
@@ -380,10 +330,17 @@ void C2D_Clay_RenderClayCommands(Clay_C2DRendererData* rendererData, Clay_Render
                 C2D_TextBufClear(buf);
                 buf = C2D_TextBufResize(buf, len + 1);
 
-                std::string str(contents, len);
-                if(C2D_TextFontParse(&text, font, buf, str.c_str()) == nullptr) {
-                    fprintf(stderr, "Failed to parse text: %s\n", str.c_str());
+                char* str = strndup(contents, len);
+                if(str == nullptr || C2D_TextFontParse(&text, font, buf, str) == nullptr) {
+                    if(str != nullptr) {
+                        fprintf(stderr, "Failed to parse text: %s\n", str);
+                    }
+
+                    free(str);
+                    break;
                 }
+
+                free(str);
 
                 C2D_TextOptimize(&text);
                 it->second = CacheEntry{ text, hash };
@@ -394,9 +351,6 @@ void C2D_Clay_RenderClayCommands(Clay_C2DRendererData* rendererData, Clay_Render
         }
         case CLAY_RENDER_COMMAND_TYPE_BORDER: {
             Clay_BorderRenderData* config = &rcmd->renderData.border;
-            if(!C2D_Clay_InView(bounds)) {
-                return;
-            }
 
             C2D_Clay_Square(
                 Clay_BoundingBox{
@@ -417,7 +371,7 @@ void C2D_Clay_RenderClayCommands(Clay_C2DRendererData* rendererData, Clay_Render
             Clay_ImageRenderData* config = &rcmd->renderData.image;
             C2D_Image* image             = reinterpret_cast<C2D_Image*>(config->imageData);
 
-            if(image == nullptr || (image->subtex == nullptr && image->tex == nullptr) || !C2D_Clay_InView(bounds)) {
+            if(image == nullptr || (image->subtex == nullptr && image->tex == nullptr)) {
                 break;
             }
 
@@ -448,7 +402,7 @@ void C2D_Clay_RenderClayCommands(Clay_C2DRendererData* rendererData, Clay_Render
         }
         case CLAY_RENDER_COMMAND_TYPE_CUSTOM: {
             Clay_CustomRenderData config = rcmd->renderData.custom;
-            if(config.customData == nullptr || !C2D_Clay_InView(bounds)) {
+            if(config.customData == nullptr) {
                 break;
             }
 

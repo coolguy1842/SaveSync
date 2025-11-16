@@ -9,7 +9,7 @@
 
 class Directory;
 class File;
-class Archive {
+class Archive : public std::enable_shared_from_this<Archive> {
 public:
     static std::shared_ptr<Archive> open(FS_ArchiveID id, VarPath path);
     ~Archive();
@@ -33,15 +33,10 @@ public:
     bool deleteDirectory(VarPath path);
     bool deleteFile(VarPath path);
 
-    u64 lastChanged(std::u16string path);
-
     bool commitSaveData();
 
 private:
     Archive(FS_ArchiveID id, FS_Path path);
-
-    // to allow passing to files, directories without holding a reference count
-    std::weak_ptr<Archive> m_instance;
 
     bool m_valid;
     FS_Archive m_handle;
