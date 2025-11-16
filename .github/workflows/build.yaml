@@ -14,6 +14,9 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Mark ownership safe
+        run: git config --global --add safe.directory "${{ github.workspace }}"
+        
       - name: Download makerom
         continue-on-error: true
         run: |
@@ -45,8 +48,8 @@ jobs:
           files: |
             build/SaveSync.3dsx
             build/SaveSync.cia
-          tag_name: master
-        if: github.ref == 'refs/heads/master'
+          tag_name: ${{ github.ref_name }}
+          token: ${{ secrets.REPO_TOKEN }}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
