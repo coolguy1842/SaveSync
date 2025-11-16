@@ -9,10 +9,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-          
+
       - name: Configure
         uses: docker://devkitpro/devkitarm
         with:
@@ -24,7 +24,8 @@ jobs:
           run: cmake --build build -j $(nproc)
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
-          name: build-output
+          name: 3DSX
           path: build/SaveSync.3dsx
+          if-no-files-found: error
