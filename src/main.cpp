@@ -9,7 +9,12 @@
 #include <timestamp.h>
 
 int main() {
-    Logger::log("SaveSync v{}.{}.{} | {}({}) | {} | Built {}", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, git_branch_str, git_short_hash_str, git_dirty_str, build_time_str);
+    std::string dirtyStr;
+    if(strlen(git_dirty_str) != 0) {
+        dirtyStr = std::format("| {} ", git_dirty_str);
+    }
+
+    Logger::log("SaveSync v{}.{}.{} | {}({}) {}| Built {}", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, git_branch_str, git_short_hash_str, dirtyStr, build_time_str);
 
     {
         std::unique_ptr<Application> application = std::make_unique<Application>();
