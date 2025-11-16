@@ -14,6 +14,20 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Download makerom
+        continue-on-error: true
+        run: |
+          curl -L -o makerom.zip https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.18.3/makerom-v0.18.3-ubuntu_x86_64.zip
+          unzip makerom.zip
+          chmod +x ./makerom
+
+      - name: Download bannertool
+        continue-on-error: true
+        run: |
+          curl -L -o bannertool.zip https://github.com/Epicpkmn11/bannertool/releases/download/v1.2.2/bannertool.zip
+          unzip -p bannertool.zip "linux-x86_64/bannertool" > bannertool
+          chmod +x ./bannertool
+            
       - name: Configure
         uses: docker://devkitpro/devkitarm
         with:
@@ -27,6 +41,8 @@ jobs:
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: 3DSX
-          path: build/SaveSync.3dsx
-          if-no-files-found: error
+          name: Executables
+          path: |
+            build/SaveSync.3dsx
+            build/SaveSync.cia
+          if-no-files-found: warn
