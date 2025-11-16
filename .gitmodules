@@ -1,0 +1,3 @@
+[submodule "cmake_timestamp"]
+	path = cmake_timestamp
+	url = https://github.com/kraiskil/cmake_timestamp

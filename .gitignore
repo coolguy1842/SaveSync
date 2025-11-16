@@ -3,3 +3,7 @@
 .vscode
 build
 compile_commands.json
+makerom
+makerom.exe
+bannertool
+bannertool.exe

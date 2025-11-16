@@ -1,0 +1,247 @@
+#include <TitleLoader.hpp>
+#include <Util/Logger.hpp>
+#include <Util/Profiler.hpp>
+#include <map>
+
+TitleLoader::TitleLoader()
+    : m_SDTitlesLoaded(false)
+    , m_loaderWorker(new Worker([this](Worker*) { loadWorkerMain(); }, 4, (0x8000 * NumChunkWorkers) + 0x1000))
+    , m_hashWorker(new Worker([this](Worker*) { hashWorkerMain(); }, 3, 0x3000)) {
+    amInit();
+
+    reloadTitles();
+}
+
+TitleLoader::~TitleLoader() {
+    m_titlesLoadedChangedSignal.setBlocked(true);
+    m_titlesFinishedLoadingSignal.setBlocked(true);
+    m_titleHashedSignal.setBlocked(true);
+
+    m_loaderWorker->waitForExit();
+    m_loaderWorker.reset();
+
+    for(auto& worker : m_chunkWorkers) {
+        worker.waitForExit();
+        worker.setWorkerFunc(nullptr);
+    }
+
+    m_hashWorker->waitForExit();
+    m_hashWorker.reset();
+
+    m_titles.clear();
+    amExit();
+}
+
+void TitleLoader::reloadTitles() {
+    m_loaderWorker->waitForExit();
+    m_loaderWorker->start();
+}
+
+void TitleLoader::reloadHashes() {
+    m_hashWorker->waitForExit();
+    m_hashWorker->start();
+}
+
+size_t TitleLoader::totalTitles() const { return m_totalTitles; }
+size_t TitleLoader::titlesLoaded() const { return m_titlesLoaded; }
+
+bool TitleLoader::isLoadingTitles() const { return m_loaderWorker->running(); }
+
+static std::atomic<u64> titleNum = 0;
+void TitleLoader::loadSDTitles(u32 numTitles) {
+    PROFILE_SCOPE("Load SD Titles");
+    Result res;
+    if(numTitles == 0) {
+        if(R_FAILED(res = AM_GetTitleCount(MEDIATYPE_SD, &numTitles))) {
+            Logger::warn("Load SD Titles", "Failed to get SDCard title count");
+            Logger::warn("Load SD Titles", res);
+            return;
+        }
+    }
+
+    if(numTitles == 0) {
+        Logger::info("Load SD Titles", "SDcard title count is 0");
+        return;
+    }
+
+    std::vector<u64> ids(numTitles);
+    if(R_FAILED(res = AM_GetTitleList(&numTitles, MEDIATYPE_SD, numTitles, ids.data()))) {
+        Logger::warn("Load SD Titles", "Failed to get SDCard title list");
+        Logger::warn("Load SD Titles", res);
+
+        return;
+    }
+
+    for(const auto& id : ids) {
+        if(m_loaderWorker->waitingForExit()) {
+            Logger::info("Load SD Titles", "Exiting early");
+            return;
+        }
+
+        m_chunkWorkerTitles[titleNum++ % m_chunkWorkers.size()].push(TitleEntry{
+            .id        = id,
+            .mediaType = MEDIATYPE_SD,
+            .cardType  = CARD_CTR,
+        });
+    }
+}
+
+void TitleLoader::loadWorkerMain() {
+    titleNum = 0;
+    PROFILE_SCOPE("Load All Titles");
+
+    // TODO: maybe implement game cartridge loading
+    for(auto it = m_titles.begin(); it != m_titles.end();) {
+        std::shared_ptr<Title> title = *it;
+        if(title->mediaType() != MEDIATYPE_SD) {
+            it = m_titles.erase(it);
+            continue;
+        }
+
+        it++;
+    }
+
+    u32 sdTitles  = 0;
+    m_totalTitles = 0;
+
+    if(!m_SDTitlesLoaded) {
+        Result res;
+        if(R_SUCCEEDED(res = AM_GetTitleCount(MEDIATYPE_SD, &sdTitles))) {
+            m_totalTitles += sdTitles;
+            sdTitles = 0;
+        }
+        else {
+            Logger::warn("Load Worker", "Failed to get SDCard title count");
+            Logger::warn("Load Worker", res);
+        }
+
+        m_titlesLoaded = 0;
+        m_titlesLoadedChangedSignal(m_titlesLoaded);
+    }
+    else {
+        sdTitles = m_totalTitles = m_titlesLoaded = m_titles.size();
+        m_titlesLoadedChangedSignal(m_titlesLoaded);
+    }
+
+    for(size_t i = 0; i < m_chunkWorkers.size(); i++) {
+        m_chunkWorkers[i] = Worker(
+            [this, i](Worker*) {
+                auto& entries = m_chunkWorkerTitles[i];
+                while(!entries.empty()) {
+                    if(m_loaderWorker->waitingForExit()) {
+                        return;
+                    }
+
+                    const auto& entry = entries.top();
+
+                    std::shared_ptr<Title> title = std::make_shared<Title>(entry.id, entry.mediaType, entry.cardType);
+                    entries.pop();
+
+                    if(title == nullptr || !title->valid()) {
+                        m_titlesLoadedChangedSignal(++m_titlesLoaded);
+                        continue;
+                    }
+
+                    m_titlesLoadedChangedSignal(++m_titlesLoaded);
+                    std::unique_lock lock(m_titlesMutex);
+                    m_titles.push_back(title);
+                }
+            },
+            4, 0x6000
+        );
+    }
+
+    if(!m_SDTitlesLoaded) {
+        m_SDTitlesLoaded = true;
+
+        loadSDTitles(sdTitles);
+    }
+
+    if(m_loaderWorker->waitingForExit()) {
+        Logger::info("Load Worker", "Exiting early");
+        return;
+    }
+
+    for(auto& worker : m_chunkWorkers) {
+        worker.start();
+    }
+
+    for(auto& worker : m_chunkWorkers) {
+        worker.waitForExit();
+    }
+
+    m_titlesFinishedLoadingSignal();
+    m_hashWorker->start();
+}
+
+enum Priority {
+    HIGH,
+    MEDIUM,
+    LOW
+};
+
+void TitleLoader::hashWorkerMain() {
+    PROFILE_SCOPE("Hash All Titles");
+    std::map<Priority, std::vector<std::pair<std::shared_ptr<Title>, Container>>> containers = {
+        { HIGH, {} },
+        { MEDIUM, {} },
+        { LOW, {} }
+    };
+
+    std::vector<std::shared_ptr<Title>> titles = m_titles;
+    for(auto title : titles) {
+        if(title == nullptr || !title->valid()) {
+            continue;
+        }
+
+        for(Container type : { SAVE, EXTDATA }) {
+            if(m_hashWorker->waitingForExit()) {
+                Logger::info("Hash Worker", "Exiting early");
+                return;
+            }
+
+            std::vector<FileInfo> files;
+            {
+                std::unique_lock lock(title->containerMutex(type));
+                files = title->getContainerFiles(type);
+            }
+
+            if(files.size() <= 0) {
+                continue;
+            }
+
+            bool hasAnyHash = false, allHashed = true;
+            for(auto file : files) {
+                if(!file.hash.has_value()) {
+                    allHashed = false;
+                    break;
+                }
+                // make medium priority if should update
+                else if(file._shouldUpdateHash) {
+                    allHashed  = false;
+                    hasAnyHash = true;
+                    break;
+                }
+
+                hasAnyHash = true;
+            }
+
+            containers[hasAnyHash ? (allHashed ? LOW : MEDIUM) : HIGH].push_back({ title, type });
+        }
+    }
+
+    for(const auto& entry : containers) {
+        for(const auto& pair : entry.second) {
+            if(m_hashWorker->waitingForExit()) {
+                Logger::info("Hash Worker", "Exiting early");
+
+                return;
+            }
+
+            pair.first->hashContainer(pair.second);
+            m_titleHashedSignal(pair.first, pair.second);
+        }
+    }
+}
+
+std::vector<std::shared_ptr<Title>> TitleLoader::titles() { return m_titles; }

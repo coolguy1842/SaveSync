@@ -1,0 +1,177 @@
+#ifndef __CLIENT_HPP__
+#define __CLIENT_HPP__
+
+#include <3ds.h>
+#include <curl/curl.h>
+
+#include <Title.hpp>
+#include <Util/Worker.hpp>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <set>
+#include <sigs.h>
+
+struct TitleInfo {
+    std::vector<FileInfo> save;
+    std::vector<FileInfo> extdata;
+};
+
+struct QueuedRequest {
+    enum RequestType {
+        NONE,
+
+        UPLOAD_SAVE,
+        DOWNLOAD_SAVE,
+
+        UPLOAD_EXTDATA,
+        DOWNLOAD_EXTDATA,
+
+        RELOAD_TITLE_CACHE,
+    };
+
+    RequestType type;
+    std::shared_ptr<Title> title = nullptr;
+
+    bool operator<(const QueuedRequest& other) const;
+    bool operator==(const QueuedRequest& other) const;
+};
+
+class Client {
+public:
+    Client(std::string url = "");
+    ~Client();
+
+    bool valid() const;
+
+    std::string url() const;
+    void setURL(std::string url);
+
+    bool wifiEnabled();
+    bool serverOnline();
+
+    Result upload(std::shared_ptr<Title> title, Container container);
+    Result download(std::shared_ptr<Title> title, Container container);
+
+    std::unordered_map<u64, TitleInfo> cachedTitleInfo() const;
+    bool cachedTitleInfoLoaded() const;
+
+    void queueAction(QueuedRequest request);
+
+    void startQueueWorker();
+    void stopQueueWorker();
+
+    bool processingQueueRequest() const;
+    bool showRequestProgress() const;
+
+    bool willProcessRequests() const;
+    void setProcessRequests(bool process = true);
+
+    u64 requestProgressCurrent() const;
+    u64 requestProgressMax() const;
+
+    QueuedRequest currentRequest() const;
+
+    size_t requestQueueSize() const;
+    std::string requestStatus() const;
+
+public:
+    static Result noFilesUploadError();
+    static Result emptyUploadError();
+
+    static Result emptyDownloadError();
+
+public:
+    [[nodiscard]] auto titleCacheChangedSignal() { return m_titleCacheChangedSignal.interface(); }
+    [[nodiscard]] auto networkQueueChangedSignal() { return m_networkQueueChangedSignal.interface(); }
+    [[nodiscard]] auto requestProgressChangedSignal() { return m_requestProgressChangedSignal.interface(); }
+    [[nodiscard]] auto titleInfoChangedSignal() { return m_titleInfoChangedSignal.interface(); }
+    [[nodiscard]] auto requestStatusChangedSignal() { return m_requestStatusChangedSignal.interface(); }
+    [[nodiscard]] auto requestFailedSignal() { return m_requestFailedSignal.interface(); }
+
+private:
+    void queueWorkerMain();
+
+    struct DownloadAction {
+        enum Action {
+            KEEP,
+            REPLACE,
+            CREATE,
+            REMOVE
+        };
+
+        static std::string actionKey(Action type);
+        // defaults to keep if invalid
+        static Action actionValue(std::string type);
+
+        std::string path;
+        Action action;
+
+        std::optional<u64> size;
+        std::optional<std::string> hash;
+    };
+
+    // ticket is the identifier for the upload (uuidv4), will be overwritten with the output ticket
+    Result beginUpload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::vector<std::string>& requestedFiles);
+    Result beginDownload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::vector<DownloadAction>& fileActions);
+
+    Result uploadFile(const std::string& ticket, std::shared_ptr<File> file, const std::string& path);
+    Result downloadFile(const std::string& ticket, std::shared_ptr<File> file, const std::string& path);
+
+    Result endUpload(const std::string& ticket);
+    Result endDownload(const std::string& ticket);
+
+    Result cancelUpload(const std::string& ticket);
+
+    Result loadTitleInfoCache();
+    void clearTitleInfoCache();
+
+private:
+    Result performFailError();
+    Result invalidStatusCodeError();
+
+private:
+    // returns if soc was/is initialized
+    static bool initSOC();
+    static void closeSOC();
+
+    void setOnline(bool online = true);
+
+    static bool SOCInitialized;
+    static u32* SOCBuffer;
+    static size_t numClients;
+
+    bool m_valid;
+    std::string m_url;
+
+    std::unique_ptr<Worker> m_requestWorker;
+    std::set<QueuedRequest> m_requestQueue;
+    std::optional<QueuedRequest> m_activeRequest;
+
+    std::mutex m_requestMutex;
+
+    bool m_serverOnline;
+    std::unordered_map<u64, TitleInfo> m_cachedTitleInfo;
+
+    std::string m_requestStatus;
+
+    bool m_titleInfoCached;
+
+    bool m_processRequests;
+    bool m_processingQueueRequest;
+    bool m_showRequestProgress;
+
+    u64 m_progressCurrent;
+    u64 m_progressMax;
+
+private:
+    sigs::Signal<void(const size_t&, const bool&)> m_networkQueueChangedSignal;
+    sigs::Signal<void(const u64&, const u64&)> m_requestProgressChangedSignal;
+    sigs::Signal<void()> m_titleCacheChangedSignal;
+    sigs::Signal<void(const u64&, const TitleInfo&)> m_titleInfoChangedSignal;
+    sigs::Signal<void(const std::string&)> m_requestStatusChangedSignal;
+    sigs::Signal<void(const std::string&)> m_requestFailedSignal;
+};
+
+#endif
