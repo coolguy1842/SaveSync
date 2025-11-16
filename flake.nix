@@ -31,6 +31,7 @@
                     gnumake
                     ninja
                     cmake
+                    act
                 ];
             };
 

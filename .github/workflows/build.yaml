@@ -1,0 +1,30 @@
+name: Build
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          persist-credentials: false
+          
+      - name: Configure
+        uses: docker://devkitpro/devkitarm
+        with:
+          run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        uses: docker://devkitpro/devkitarm
+        with:
+          run: cmake --build build -j $(nproc)
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: build-output
+          path: build/SaveSync.3dsx

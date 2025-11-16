@@ -87,6 +87,8 @@ void TitleLoader::loadSDTitles(u32 numTitles) {
 }
 
 void TitleLoader::loadWorkerMain() {
+    Logger::info("Load Worker", "Loading titles");
+
     titleNum = 0;
     PROFILE_SCOPE("Load All Titles");
 
@@ -170,6 +172,7 @@ void TitleLoader::loadWorkerMain() {
         worker.waitForExit();
     }
 
+    Logger::info("Load Worker", "Loaded {} titles", m_titles.size());
     m_titlesFinishedLoadingSignal();
     m_hashWorker->start();
 }
@@ -181,6 +184,8 @@ enum Priority {
 };
 
 void TitleLoader::hashWorkerMain() {
+    Logger::info("Hash Worker", "Hashing all titles");
+
     PROFILE_SCOPE("Hash All Titles");
     std::map<Priority, std::vector<std::pair<std::shared_ptr<Title>, Container>>> containers = {
         { HIGH, {} },
@@ -202,6 +207,7 @@ void TitleLoader::hashWorkerMain() {
 
             std::vector<FileInfo> files;
             {
+                // this will wait for any operation to be done
                 std::unique_lock lock(title->containerMutex(type));
                 files = title->getContainerFiles(type);
             }
@@ -242,6 +248,8 @@ void TitleLoader::hashWorkerMain() {
             m_titleHashedSignal(pair.first, pair.second);
         }
     }
+
+    Logger::info("Hash Worker", "Hashed all titles");
 }
 
 std::vector<std::shared_ptr<Title>> TitleLoader::titles() { return m_titles; }

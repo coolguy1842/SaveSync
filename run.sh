@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 
 ./build.sh
 if [[ $? == 0 ]]; then
