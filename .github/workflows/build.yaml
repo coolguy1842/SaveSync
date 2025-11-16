@@ -38,6 +38,16 @@ jobs:
         with:
           args: cmake --build build
 
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: Automated Artifacts Built from Master
+          files: |
+            build/SaveSync.3dsx
+            build/SaveSync.cia
+          tag_name: master
+        if: github.ref == 'refs/heads/master'
+
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
