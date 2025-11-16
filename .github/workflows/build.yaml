@@ -31,12 +31,12 @@ jobs:
       - name: Configure
         uses: docker://devkitpro/devkitarm
         with:
-          args: bash -c 'git config --global --add safe.directory "${{ github.workspace }}" && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release'
+          args: bash -c "git config --global --add safe.directory \"${{ github.workspace }}\" && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release"
 
       - name: Build
         uses: docker://devkitpro/devkitarm
         with:
-          args: bash -c 'git config --global --add safe.directory "${{ github.workspace }}" && cmake --build build'
+          args: bash -c "git config --global --add safe.directory \"${{ github.workspace }}\" && cmake --build build"
 
       - name: Release
         uses: softprops/action-gh-release@v2
