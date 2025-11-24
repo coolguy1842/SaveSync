@@ -6,11 +6,11 @@ const std::string defaultURL = "http://example.com";
 const u16 defaultPort        = 8000;
 const Layout defaultLayout   = GRID;
 
-Config::Config()
-    : m_serverURL(std::make_shared<Option<std::string>>("Server URL", defaultURL))
-    , m_serverPort(std::make_shared<Option<u16>>("Server Port", defaultPort))
-    , m_layout(std::make_shared<Option<Layout>>("Layout", defaultLayout)) {
-    load();
+Config::Config() {
+    // : m_serverURL(std::make_shared<Option<std::string>>("Server URL", defaultURL))
+    // , m_serverPort(std::make_shared<Option<u16>>("Server Port", defaultPort))
+    // , m_layout(std::make_shared<Option<Layout>>("Layout", defaultLayout)) {
+    // load();
 
     // m_serverURL->changedEmptySignal()->connect(this, &Config::save);
     // m_serverPort->changedEmptySignal()->connect(this, &Config::save);

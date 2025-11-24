@@ -6,6 +6,7 @@
 #include <Util/StringUtil.hpp>
 #include <Util/Worker.hpp>
 #include <iomanip>
+#include <iostream>
 #include <list>
 #include <md5.h>
 #include <sstream>
@@ -336,6 +337,7 @@ void Title::hashContainer(Container container) {
 constexpr std::string formatFileInfo(Container container, FileInfo file) {
     return std::format("{}{}{}:{}\n", container == SAVE ? 's' : 'e', file.size, file.path, file.hash.value_or(" "));
 }
+constexpr size_t versionSize = 3;
 
 bool Title::loadSMDHData() {
     std::unique_ptr<SMDH> smdh = std::make_unique<SMDH>(m_id, m_mediaType);
@@ -374,7 +376,7 @@ void Title::saveCache() {
 
     std::ostringstream stream;
     // version
-    stream << "1";
+    stream << std::setfill('0') << std::setw(versionSize) << "1";
     stream << std::left << std::setfill('\0') << std::setw(sizeof(SMDH::ApplicationTitle::shortDescription) / sizeof(u16)) << m_shortDescription;
     stream << std::left << std::setfill('\0') << std::setw(sizeof(SMDH::ApplicationTitle::longDescription) / sizeof(u16)) << m_longDescription;
 
@@ -420,6 +422,7 @@ bool Title::loadCache() {
     };
 
     PROFILE_SCOPE("Load Title Cache");
+    Logger::info("Load Cached Title Files", "Loading cache: {:X}", m_id);
 
     std::unique_lock lock(m_cacheMutex);
     std::shared_ptr<File> file = File::openDirect(ARCHIVE_SDMC, VarPath(), std::format("/3ds/SaveSync/{:X}", m_id), FS_OPEN_READ, 0);
@@ -450,76 +453,74 @@ bool Title::loadCache() {
         goto invalidCache;
     }
 
-    std::string fileBuf = file->readStr(fileSize, 0);
-    if(fileBuf.size() != fileSize || R_FAILED(file->lastResult())) {
+    // std::string version = file->readStr(versionSize, 0);
+    char* version = new char[versionSize + 1];
+    memset(version, 0, versionSize + 1);
+
+    u32 read = file->read(version, versionSize, 0);
+    if(read != versionSize || R_FAILED(file->lastResult())) {
+        delete[] version;
         goto invalidCache;
     }
 
-    u64 offset = 0;
-    if(!isdigit(fileBuf[0]) || fileBuf[0] == '0') {
-        Logger::warn("Load Title Cache", "Invalid version {}", fileBuf[0]);
-        goto invalidCache;
-    }
+    delete[] version;
 
-    u8 version = fileBuf[0] - '0';
-    offset += 1;
+    // if(strcmp(version, "001") != 0) {
+    //     goto invalidCache;
+    // }
 
-    switch(version) {
-    case 1: {
-        // + 1 for version number
-        if(fileSize - offset < sizeof(TitleData)) {
-            goto invalidCache;
-        }
+    // size_t offset = 3;
+    // if(fileSize - offset < sizeof(TitleData)) {
+    //     goto invalidCache;
+    // }
 
-        TitleData titleData;
-        memcpy(&titleData, fileBuf.c_str() + offset, sizeof(TitleData));
+    // try malloc'ing titleData instead for stack issues
+    // TitleData titleData;
+    // u64 read = file->read(&titleData, sizeof(TitleData), offset);
+    // (void)read;
+    // if(read != sizeof(titleData) || R_FAILED(file->lastResult())) {
+    //     goto invalidCache;
+    // }
 
-        m_shortDescription = titleData.shortDesc;
-        m_longDescription  = titleData.longDesc;
+    // m_shortDescription = titleData.shortDesc;
+    // m_longDescription  = titleData.longDesc;
 
-        m_icon = { new C3D_Tex, &SMDH::ICON_SUBTEX };
-        C3D_TexInit(m_icon.tex, SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT, GPU_RGB565);
-        SMDH::copyImageData(titleData.texData, SMDH::ICON_WIDTH, SMDH::ICON_HEIGHT, reinterpret_cast<u16*>(m_icon.tex->data), SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT);
+    // m_icon = { new C3D_Tex, &SMDH::ICON_SUBTEX };
+    // C3D_TexInit(m_icon.tex, SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT, GPU_RGB565);
+    // SMDH::copyImageData(titleData.texData, SMDH::ICON_WIDTH, SMDH::ICON_HEIGHT, reinterpret_cast<u16*>(m_icon.tex->data), SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT);
 
-        offset += sizeof(TitleData);
+    // m_saveFiles.clear();
+    // m_extdataFiles.clear();
 
-        m_saveFiles.clear();
-        m_extdataFiles.clear();
+    // while(offset < fileSize) {
+    //     char containerCode = fileBuf[offset];
+    //     if((containerCode != 's' && containerCode != 'e')) {
+    //         break;
+    //     }
 
-        while(offset < fileSize) {
-            char containerCode = fileBuf[offset];
-            if((containerCode != 's' && containerCode != 'e')) {
-                break;
-            }
+    //     FileInfo info = { ._shouldUpdateHash = true };
+    //     char path[0x100];
 
-            FileInfo info = { ._shouldUpdateHash = true };
-            char path[0x100];
+    //     char hash[33];
+    //     int numRead = 0;
+    //     if(sscanf(fileBuf.c_str() + offset, "%*c%llu%[^:]:%32[^\n]\n%n", &info.size, path, hash, &numRead) != 3) {
+    //         Logger::warn("Load Title Cache", "Invalid hashed entry");
+    //         goto invalidCache;
+    //     }
 
-            char hash[33];
-            int numRead = 0;
-            if(sscanf(fileBuf.c_str() + offset, "%*c%llu%[^:]:%32[^\n]\n%n", &info.size, path, hash, &numRead) != 3) {
-                Logger::warn("Load Title Cache", "Invalid hashed entry");
-                goto invalidCache;
-            }
+    //     if(strlen(hash) == 32) {
+    //         info.hash = hash;
+    //     }
 
-            if(strlen(hash) == 32) {
-                info.hash = hash;
-            }
+    //     info.path = path;
+    //     offset += static_cast<u64>(numRead);
 
-            info.path = path;
-            offset += static_cast<u64>(numRead);
-
-            switch(containerCode) {
-            case 's': m_saveFiles.push_back(info); break;
-            case 'e': m_extdataFiles.push_back(info); break;
-            default:  break;
-            }
-        }
-
-        break;
-    }
-    default: goto invalidCache;
-    }
+    //     switch(containerCode) {
+    //     case 's': m_saveFiles.push_back(info); break;
+    //     case 'e': m_extdataFiles.push_back(info); break;
+    //     default:  break;
+    //     }
+    // }
 
     return true;
 }

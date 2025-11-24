@@ -10,7 +10,7 @@
 
 #ifdef DEBUG
 // if not defined then disable any leak checking
-#define ENABLE_LEAK_CHECK
+// #define ENABLE_LEAK_CHECK
 #endif
 
 void* __real_malloc(size_t size);
@@ -510,17 +510,53 @@ size_t leakListCurrentLeaked() {
 
 #else
 
-void* __wrap_malloc(size_t size) { return __real_malloc(size); }
+static bool initialized = false;
+static pthread_mutex_t mutex;
+
+void* __wrap_malloc(size_t size) {
+    if(!initialized) {
+        return __real_malloc(size);
+    }
+
+    pthread_mutex_lock(&mutex);
+    void* ptr = __real_malloc(size);
+    pthread_mutex_unlock(&mutex);
+
+    return ptr;
+}
+
 void* __wrap_calloc(size_t num, size_t size) { return __real_calloc(num, size); }
 void* __wrap_realloc(void* ptr, size_t size) { return __real_realloc(ptr, size); }
 void* __wrap_memalign(size_t alignment, size_t size) { return __real_memalign(alignment, size); }
 char* __wrap_strdup(const char* str) { return __real_strdup(str); }
 char* __wrap_strndup(const char* str, size_t n) { return __real_strndup(str, n); }
-void __wrap_free(void* ptr) { __real_free(ptr); }
-int __wrap_main() { return __real_main(); }
+void __wrap_free(void* ptr) {
+    if(!initialized) {
+        __real_free(ptr);
+        return;
+    }
 
-void initLeakDetector() {}
-void exitLeakDetector() {}
+    pthread_mutex_lock(&mutex);
+    __real_free(ptr);
+    pthread_mutex_unlock(&mutex);
+}
+
+int __wrap_main() {
+    initLeakDetector();
+    int code = __real_main();
+    exitLeakDetector();
+
+    return code;
+}
+
+void initLeakDetector() {
+    pthread_mutex_init(&mutex, NULL);
+    initialized = true;
+}
+
+void exitLeakDetector() {
+    pthread_mutex_destroy(&mutex);
+}
 
 bool isDetectingLeaks() { return false; }
 
@@ -530,5 +566,6 @@ void clearLeaks() {}
 
 leak_list_node* cloneCurrentList() { return NULL; }
 void freeClonedList(leak_list_node* begin) { (void)begin; }
+size_t leakListCurrentLeaked() { return 0; }
 
 #endif

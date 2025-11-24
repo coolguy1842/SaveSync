@@ -5,17 +5,13 @@
 
 TitleLoader::TitleLoader()
     : m_SDTitlesLoaded(false)
-    , m_loaderWorker(new Worker([this](Worker*) { loadWorkerMain(); }, 4, 0x8000))
+    , m_loaderWorker(new Worker([this](Worker*) { loadWorkerMain(); }, 4, 0x1000000))
     , m_hashWorker(new Worker([this](Worker*) { hashWorkerMain(); }, 3, 0x3000)) {
     amInit();
     reloadTitles();
 }
 
 TitleLoader::~TitleLoader() {
-    m_titlesLoadedChangedSignal.setBlocked(true);
-    m_titlesFinishedLoadingSignal.setBlocked(true);
-    m_titleHashedSignal.setBlocked(true);
-
     m_loaderWorker->waitForExit();
     m_loaderWorker.reset();
 
@@ -40,44 +36,47 @@ size_t TitleLoader::titlesLoaded() const { return m_titlesLoaded; }
 
 bool TitleLoader::isLoadingTitles() const { return m_loaderWorker->running(); }
 
-static std::atomic<u64> titleNum = 0;
 void TitleLoader::loadSDTitles(u32 numTitles) {
     PROFILE_SCOPE("Load SD Titles");
+
     Result res;
     if(numTitles == 0) {
         if(R_FAILED(res = AM_GetTitleCount(MEDIATYPE_SD, &numTitles))) {
-            Logger::warn("Load SD Titles", "Failed to get SDCard title count");
+            Logger::warn("Load SD Titles", "Failed to get title count");
             Logger::warn("Load SD Titles", res);
             return;
         }
     }
 
     if(numTitles == 0) {
-        Logger::info("Load SD Titles", "SDcard title count is 0");
+        Logger::info("Load SD Titles", "Title count is 0");
         return;
     }
 
-    std::vector<u64> ids(numTitles);
-    if(R_FAILED(res = AM_GetTitleList(&numTitles, MEDIATYPE_SD, numTitles, ids.data()))) {
+    u64* ids = new u64[numTitles];
+    if(R_FAILED(res = AM_GetTitleList(&numTitles, MEDIATYPE_SD, numTitles, ids))) {
         Logger::warn("Load SD Titles", "Failed to get SDCard title list");
         Logger::warn("Load SD Titles", res);
 
         return;
     }
 
-    for(const auto& id : ids) {
+    for(u32 i = 0; i < numTitles; i++) {
         if(m_loaderWorker->waitingForExit()) {
             Logger::info("Load SD Titles", "Exiting early");
             return;
         }
 
+        u64 id = ids[i];
+        (void)id;
+
         std::shared_ptr<Title> title = std::make_shared<Title>(id, MEDIATYPE_SD, CARD_CTR);
+
+        m_titlesLoaded++;
         if(title == nullptr || !title->valid()) {
-            m_titlesLoadedChangedSignal(++m_titlesLoaded);
             continue;
         }
 
-        m_titlesLoadedChangedSignal(++m_titlesLoaded);
         std::unique_lock lock(m_titlesMutex);
         m_titles.push_back(title);
     }
@@ -85,8 +84,6 @@ void TitleLoader::loadSDTitles(u32 numTitles) {
 
 void TitleLoader::loadWorkerMain() {
     Logger::info("Load Worker", "Loading titles");
-
-    titleNum = 0;
     PROFILE_SCOPE("Load All Titles");
 
     // TODO: maybe implement game cartridge loading
@@ -107,31 +104,21 @@ void TitleLoader::loadWorkerMain() {
         Result res;
         if(R_SUCCEEDED(res = AM_GetTitleCount(MEDIATYPE_SD, &sdTitles))) {
             m_totalTitles += sdTitles;
-            sdTitles = 0;
         }
         else {
             Logger::warn("Load Worker", "Failed to get SDCard title count");
             Logger::warn("Load Worker", res);
+
+            sdTitles = 0;
         }
 
         m_titlesLoaded = 0;
-        m_titlesLoadedChangedSignal(m_titlesLoaded);
+
+        loadSDTitles(sdTitles);
+        m_SDTitlesLoaded = true;
     }
     else {
         sdTitles = m_totalTitles = m_titlesLoaded = m_titles.size();
-        m_titlesLoadedChangedSignal(m_titlesLoaded);
-    }
-
-    if(!m_SDTitlesLoaded) {
-        m_SDTitlesLoaded = true;
-
-        loadSDTitles(sdTitles);
-    }
-
-    if(m_loaderWorker->waitingForExit()) {
-        Logger::info("Load Worker", "Exiting early");
-
-        return;
     }
 
     if(m_loaderWorker->waitingForExit()) {
@@ -140,9 +127,7 @@ void TitleLoader::loadWorkerMain() {
     }
 
     Logger::info("Load Worker", "Loaded {} titles", m_titles.size());
-
-    m_titlesFinishedLoadingSignal();
-    reloadHashes();
+    // reloadHashes();
 }
 
 enum Priority {
@@ -213,7 +198,6 @@ void TitleLoader::hashWorkerMain() {
             }
 
             pair.first->hashContainer(pair.second);
-            m_titleHashedSignal(pair.first, pair.second);
         }
     }
 

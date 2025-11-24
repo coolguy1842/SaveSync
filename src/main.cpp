@@ -22,9 +22,8 @@ int main() {
         Logger::log("SaveSync v{}.{}.{} | {}({}) {}| Built {}", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, git_branch_str, git_short_hash_str, dirtyStr, build_time_str);
     }
 
-top:
-    //
-    {
+    // Clay_SetMaxElementCount(1024);
+    while(true) {
         Logger::info("main", "before: leaked: {}\n", leakListCurrentLeaked());
         Application app;
         while(app.loop()) {
@@ -32,14 +31,12 @@ top:
             // printf("\x1b[3;1HGPU:     %6.2f%%\x1b[K", C3D_GetDrawingTime() * 6.0f);
             // printf("\x1b[4;1HCmdBuf:  %6.2f%%\x1b[K", C3D_GetCmdBufUsage() * 100.0f);
         }
+
         Logger::info("main", "after: leaked: {}\n", leakListCurrentLeaked());
+        if(aptShouldClose()) {
+            return 0;
+        }
     }
-
-    if(aptShouldClose() || !isDetectingLeaks()) {
-        return 0;
-    }
-
-    goto top;
 
     // {
     //     LeakViewerApplication app;

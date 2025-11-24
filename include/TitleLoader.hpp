@@ -13,7 +13,6 @@
 #include <vector>
 
 #include <Util/Worker.hpp>
-#include <sigs.h>
 
 class TitleLoader {
 public:
@@ -30,11 +29,6 @@ public:
 
     std::vector<std::shared_ptr<Title>> titles();
 
-public:
-    [[nodiscard]] auto titlesLoadedChangedSignal() { return m_titlesLoadedChangedSignal.interface(); }
-    [[nodiscard]] auto titlesFinishedLoadingSignal() { return m_titlesFinishedLoadingSignal.interface(); }
-    [[nodiscard]] auto titleHashedSignal() { return m_titleHashedSignal.interface(); }
-
 private:
     void loadSDTitles(u32 numTitles = 0);
 
@@ -43,7 +37,6 @@ private:
 
 private:
     std::mutex m_titlesMutex;
-
     std::vector<std::shared_ptr<Title>> m_titles;
 
     struct TitleEntry {
@@ -59,11 +52,6 @@ private:
 
     std::unique_ptr<Worker> m_loaderWorker;
     std::unique_ptr<Worker> m_hashWorker;
-
-private:
-    sigs::Signal<void(const size_t&)> m_titlesLoadedChangedSignal;
-    sigs::Signal<void()> m_titlesFinishedLoadingSignal;
-    sigs::Signal<void(const std::shared_ptr<Title>&, const Container&)> m_titleHashedSignal;
 };
 
 #endif

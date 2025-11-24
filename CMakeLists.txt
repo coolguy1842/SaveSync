@@ -59,9 +59,6 @@ add_executable(${PROJECT_NAME}
 	src/Client/Upload.cpp
 	src/Client/Download.cpp
 
-	src/UI/SettingsScreen.cpp
-	src/UI/MainScreen.cpp
-
 	src/Application.cpp
 	src/Debug/LeakViewerApplication.cpp
 

@@ -33,8 +33,10 @@ struct RenameEntry {
     std::u16string newName;
 };
 
-bool Logger::s_dirInitialized = false;
-bool Logger::s_dirExists      = false;
+bool Logger::s_dirInitialized  = false;
+bool Logger::s_dirExists       = false;
+std::mutex Logger::s_fileMutex = std::mutex();
+
 std::shared_ptr<File> Logger::openLogFile() {
     const u8 maxLogs = 5;
 
@@ -112,8 +114,14 @@ std::shared_ptr<File> Logger::openLogFile() {
 }
 
 void Logger::fileLogMessage(const std::string& message) {
+    if(message.empty()) {
+        return;
+    }
+
+    std::unique_lock lock(s_fileMutex);
     std::shared_ptr<File> file = openLogFile();
-    if(!message.empty() && file != nullptr && file->valid()) {
+
+    if(file != nullptr && file->valid()) {
         u32 size = file->size();
         if(size == UINT32_MAX || !file->setSize(size + message.size())) {
             return;
