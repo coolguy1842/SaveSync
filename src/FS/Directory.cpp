@@ -1,7 +1,6 @@
 #include <FS/Archive.hpp>
 #include <FS/Directory.hpp>
 #include <FS/File.hpp>
-#include <Util/StringUtil.hpp>
 
 class DirectoryEntryPrivate {
 public:

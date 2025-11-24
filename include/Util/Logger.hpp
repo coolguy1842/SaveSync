@@ -3,7 +3,6 @@
 
 #include <FS/File.hpp>
 #include <Util/Defines.hpp>
-#include <Util/LeakDetector.h>
 #include <format>
 #include <memory>
 #include <stdio.h>
@@ -38,9 +37,6 @@ public:
     LOGGER(critical, CRITICAL)
 
     static void logProfiler();
-
-    static void logLeaks();
-    static void logLeaks(leak_list_node* beginNode);
 
 private:
     enum Level {

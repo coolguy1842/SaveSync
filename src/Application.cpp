@@ -5,7 +5,7 @@
 
 void HandleClayErrors(Clay_ErrorData errorData) { Logger::error("Clay", "{}", errorData.errorText.chars); }
 void Application::updateURL() {
-    std::string url = std::format("{}:{}", m_config->serverURL()->value(), m_config->serverPort()->value());
+    std::string url = std::format("{}:{}", m_config.serverURL()->value(), m_config.serverPort()->value());
 
     if(m_client->processingQueueRequest()) {
         m_pendingURL = url;
@@ -77,33 +77,29 @@ void checkTitlesOutOfDate(std::vector<std::shared_ptr<Title>> titles, const bool
 Application::Application(bool consoleEnabled, gfxScreen_t consoleScreen)
     : m_shouldExit(false)
     , m_consoleEnabled(false)
-    , m_consoleInitialized(false) {
+    , m_consoleInitialized(false)
+    , m_dummyTopFramebuffer(std::make_unique<u16>(TOP_SCREEN_WIDTH * TOP_SCREEN_HEIGHT))
+    , m_dummyBottomFramebuffer(std::make_unique<u16>(BOTTOM_SCREEN_WIDTH * BOTTOM_SCREEN_HEIGHT)) {
     PROFILE_SCOPE("App Init");
     aptInit();
 
+    C2D_Clay_Init();
+    m_top    = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
+    m_bottom = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
+
+    (void)consoleEnabled;
+    (void)consoleScreen;
 #if !defined(DEBUG)
     (void)consoleEnabled;
     (void)consoleScreen;
-#endif
-
-#if defined(DEBUG) && defined(REDIRECT_CONSOLE)
+#else
+#if defined(REDIRECT_CONSOLE)
     // copy stdout & stderr handle to grab back after closing 3dslink socket
     stdoutDup = dup(STDOUT_FILENO);
     stderrDup = dup(STDERR_FILENO);
 
     link3dsStdio();
-#endif
-
-    C2D_Clay_Init();
-
-    // init the static s_glyphSheets in C2Di_TextEnsureLoad, as it will show in the leak list
-    C2D_TextBufNew(0);
-    clearLeaks();
-
-    m_top    = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
-    m_bottom = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
-
-#if defined(DEBUG) && !defined(REDIRECT_CONSOLE)
+#else
     if(!consoleEnabled) {
         setConsole(true, consoleScreen);
         setConsole(false, consoleScreen);
@@ -112,45 +108,44 @@ Application::Application(bool consoleEnabled, gfxScreen_t consoleScreen)
         setConsole(consoleEnabled, consoleScreen);
     }
 #endif
+#endif
 
     initClay();
-
-    m_config = std::make_shared<Config>();
-    m_loader = std::make_shared<TitleLoader>();
     m_client = std::make_shared<Client>();
 
-    updateURL();
-    m_config->serverURL()->changedEmptySignal()->connect(this, &Application::updateURL);
-    m_config->serverPort()->changedEmptySignal()->connect(this, &Application::updateURL);
+    // updateURL();
+    // m_config.serverURL()->changedEmptySignal()->connect(this, &Application::updateURL);
+    // m_config.serverPort()->changedEmptySignal()->connect(this, &Application::updateURL);
 
-    m_client->networkQueueChangedSignal()->connect(this, &Application::tryUpdateClientURL);
+    // m_client->networkQueueChangedSignal()->connect(this, &Application::tryUpdateClientURL);
 
-    m_client->titleCacheChangedSignal()->connect([this]() { checkTitlesOutOfDate(m_loader->titles(), m_client->cachedTitleInfoLoaded(), m_client->cachedTitleInfo()); });
-    m_loader->titlesFinishedLoadingSignal()->connect([this]() { checkTitlesOutOfDate(m_loader->titles(), m_client->cachedTitleInfoLoaded(), m_client->cachedTitleInfo()); });
-    m_loader->titleHashedSignal()->connect([this](std::shared_ptr<Title> title, Container) { checkTitleOutOfDate(title, m_client->cachedTitleInfoLoaded(), m_client->cachedTitleInfo()); });
+    // m_client->titleCacheChangedSignal()->connect([this]() { checkTitlesOutOfDate(m_loader.titles(), m_client->cachedTitleInfoLoaded(), m_client->cachedTitleInfo()); });
+    // m_loader.titlesFinishedLoadingSignal()->connect([this]() { checkTitlesOutOfDate(m_loader.titles(), m_client->cachedTitleInfoLoaded(), m_client->cachedTitleInfo()); });
+    // m_loader.titleHashedSignal()->connect([this](std::shared_ptr<Title> title, Container) { checkTitleOutOfDate(title, m_client->cachedTitleInfoLoaded(), m_client->cachedTitleInfo()); });
 
     m_client->startQueueWorker();
-    m_mainScreen = std::make_unique<MainScreen>(m_config, m_loader, m_client);
-    m_prevTime   = osGetTime();
+    // m_mainScreen = std::make_unique<MainScreen>(&m_config, &m_loader, m_client.get());
+    m_prevTime = osGetTime();
 }
 
 #if defined(DEBUG) && !defined(REDIRECT_CONSOLE)
 void resetScreen(gfxScreen_t screen) {
-    gfxSetScreenFormat(screen, GSP_BGR8_OES);
-    gfxSetDoubleBuffering(screen, true);
+    (void)screen;
+    // gfxSetScreenFormat(screen, GSP_BGR8_OES);
+    // gfxSetDoubleBuffering(screen, true);
 }
 
 void resetConsole(PrintConsole& console, u16* dummy, gfxScreen_t prevScreen) {
-    console.frameBuffer = dummy;
-    resetScreen(prevScreen);
+    (void)console;
+    (void)dummy;
+    (void)prevScreen;
+    // console.frameBuffer = dummy;
+    // resetScreen(prevScreen);
 }
 #endif
 
 Application::~Application() {
     m_mainScreen.reset();
-    m_loader.reset();
-    m_client.reset();
-    m_config.reset();
 
     if(m_clayTopMemory != nullptr) {
         free(m_clayTopMemory);
@@ -176,57 +171,7 @@ Application::~Application() {
         // swap to top framebuffer to skip any data read errors
         consoleInit(GFX_TOP, NULL);
     }
-#endif
-    leak_list_node* prevBegin = cloneCurrentList();
-#endif
-
-    C2D_Clay_Exit();
-
-#if defined(DEBUG)
-    leak_list_node* begin = leakListBegin();
-    leak_list_node* node  = begin;
-
-    leak_list_node* prevNode = NULL;
-    while(node != NULL && prevBegin != NULL) {
-        // if memory node is new then remove from the list
-        leak_list_node* next  = node->next;
-        leak_list_node* node2 = prevBegin;
-
-        while(node2 != NULL) {
-            if(node->data == node2->data && node->dataSize == node2->dataSize && node->allocatedWith == node2->allocatedWith) {
-                goto skip;
-            }
-
-            node2 = node2->next;
-        }
-
-        if(prevNode != NULL) {
-            prevNode->next = next;
-        }
-        else {
-            if(next == NULL) {
-                clearLeaks();
-            }
-
-            setLeakList(next);
-        }
-
-        node->next = prevBegin;
-        prevBegin  = node;
-
-        node = next;
-        continue;
-    skip:
-        prevNode = node;
-        node     = node->next;
-    }
-
-    freeClonedList(prevBegin);
-#endif
-
-    aptExit();
-
-#if defined(DEBUG) && defined(REDIRECT_CONSOLE)
+#else
     if(dup2(stdoutDup, STDOUT_FILENO) >= 0) {
         close(stdoutDup);
     }
@@ -235,6 +180,10 @@ Application::~Application() {
         close(stdoutDup);
     }
 #endif
+#endif
+
+    C2D_Clay_Exit();
+    aptExit();
 }
 
 void Application::update() {
@@ -306,51 +255,46 @@ void Application::update() {
     }
 #endif
 
-    m_mainScreen->update();
+    if(m_mainScreen != nullptr) {
+        m_mainScreen->update();
+    }
 }
 
 void Application::render() {
     PROFILE_SCOPE("App Render");
 
-    Clay_RenderCommandArray topCommands, bottomCommands;
-    {
-        PROFILE_SCOPE("App Layout Top");
+    C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+
+    if((!m_consoleEnabled || m_consoleScreen != GFX_TOP) && m_top != nullptr) {
+        PROFILE_SCOPE("App Render Top");
 
         Clay_SetCurrentContext(m_topContext);
         Clay_BeginLayout();
 
-        m_mainScreen->renderTop();
-        topCommands = Clay_EndLayout();
-    }
-
-    {
-        PROFILE_SCOPE("App Layout Bottom");
-
-        Clay_SetCurrentContext(m_bottomContext);
-        Clay_BeginLayout();
-
-        m_mainScreen->renderBottom();
-        bottomCommands = Clay_EndLayout();
-    }
-
-    C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-
-    if(!m_consoleEnabled || m_consoleScreen != GFX_TOP) {
-        PROFILE_SCOPE("App Render Top");
+        if(m_mainScreen != nullptr) {
+            m_mainScreen->renderTop();
+        }
 
         C2D_TargetClear(m_top, C2D_Color32(0x00, 0x00, 0x00, 0xFF));
         C2D_SceneBegin(m_top);
 
-        C2D_Clay_RenderClayCommands(&m_rendererData, topCommands, GFX_TOP);
+        C2D_Clay_RenderClayCommands(&m_rendererData, Clay_EndLayout(), GFX_TOP);
     }
 
-    if(!m_consoleEnabled || m_consoleScreen != GFX_BOTTOM) {
+    if((!m_consoleEnabled || m_consoleScreen != GFX_BOTTOM) && m_bottom != nullptr) {
         PROFILE_SCOPE("App Render Bottom");
+
+        Clay_SetCurrentContext(m_bottomContext);
+        Clay_BeginLayout();
+
+        if(m_mainScreen != nullptr) {
+            m_mainScreen->renderBottom();
+        }
 
         C2D_TargetClear(m_bottom, C2D_Color32(0x00, 0x00, 0x00, 0xFF));
         C2D_SceneBegin(m_bottom);
 
-        C2D_Clay_RenderClayCommands(&m_rendererData, bottomCommands, GFX_BOTTOM);
+        C2D_Clay_RenderClayCommands(&m_rendererData, Clay_EndLayout(), GFX_BOTTOM);
     }
 
     C3D_FrameEnd(0);
@@ -365,7 +309,7 @@ bool Application::loop() {
 
     update();
     if(!shouldExit()) {
-        render();
+        // render();
     }
 
     return !m_shouldExit;
@@ -375,80 +319,6 @@ bool Application::shouldExit() const { return m_shouldExit; }
 void Application::setShouldExit(bool shouldExit) { m_shouldExit = shouldExit; }
 
 void Application::setConsole(bool enabled, gfxScreen_t screen) {
-#if defined(DEBUG) && !defined(REDIRECT_CONSOLE)
-    if(m_consoleEnabled == enabled && (!enabled || m_consoleScreen == screen)) {
-        m_consoleScreen = screen;
-
-        return;
-    }
-
-    gfxScreen_t prevScreen = m_consoleScreen;
-    m_consoleEnabled       = enabled;
-    m_consoleScreen        = screen;
-
-    if(m_consoleEnabled && !m_consoleInitialized) {
-        consoleInit(m_consoleScreen, &m_console);
-        m_consoleInitialized = true;
-    }
-    else if(m_consoleEnabled) {
-        resetScreen(prevScreen);
-
-        m_console.consoleHeight = m_console.windowHeight = 30;
-        if(m_consoleScreen == GFX_TOP) {
-            m_console.consoleWidth = m_console.windowWidth = gfxIsWide() ? 100 : 50;
-        }
-        else {
-            m_console.consoleWidth = m_console.windowWidth = 40;
-        }
-
-        gfxSetScreenFormat(m_consoleScreen, GSP_RGB565_OES);
-        gfxSetDoubleBuffering(m_consoleScreen, false);
-        gfxSwapBuffers();
-        gspWaitForVBlank();
-
-        if(m_consoleScreen != prevScreen) {
-            u16 width, height;
-            m_console.frameBuffer = reinterpret_cast<u16*>(gfxGetFramebuffer(m_consoleScreen, GFX_LEFT, &width, &height));
-            memset(m_console.frameBuffer, 0, width * height * gspGetBytesPerPixel(GSP_RGB565_OES));
-
-            consoleClear();
-            return;
-        }
-
-        u16 width, height;
-        m_console.frameBuffer = reinterpret_cast<u16*>(gfxGetFramebuffer(m_consoleScreen, GFX_LEFT, &width, &height));
-
-        u16* dummyFramebuffer = nullptr;
-        switch(m_consoleScreen) {
-        case GFX_TOP:    dummyFramebuffer = m_dummyTopFramebuffer.data(); break;
-        case GFX_BOTTOM: dummyFramebuffer = m_dummyBottomFramebuffer.data(); break;
-        default:         return;
-        }
-
-        memcpy(m_console.frameBuffer, dummyFramebuffer, width * height * sizeof(u16));
-    }
-    else {
-        size_t framebufferSize = 0;
-        u16* framebuffer       = nullptr;
-        switch(m_consoleScreen) {
-        case GFX_TOP:
-            framebufferSize = m_dummyTopFramebuffer.size();
-            framebuffer     = m_dummyTopFramebuffer.data();
-
-            break;
-        case GFX_BOTTOM:
-            framebufferSize = m_dummyBottomFramebuffer.size();
-            framebuffer     = m_dummyBottomFramebuffer.data();
-
-            break;
-        default: return;
-        }
-
-        memcpy(framebuffer, m_console.frameBuffer, framebufferSize * sizeof(u16));
-        resetConsole(m_console, framebuffer, m_consoleScreen);
-    }
-#else
     (void)enabled;
     (void)screen;
-#endif
 }

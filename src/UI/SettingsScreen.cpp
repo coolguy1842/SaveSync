@@ -15,7 +15,7 @@ void SettingsScreen::updateDisplayPort() {
     m_displayPort = std::format("{}", m_config->serverPort()->value());
 }
 
-SettingsScreen::SettingsScreen(std::shared_ptr<Config> config)
+SettingsScreen::SettingsScreen(Config* config)
     : m_active(false)
     , m_config(config)
     , m_scrollStart(0.0)
@@ -26,8 +26,8 @@ SettingsScreen::SettingsScreen(std::shared_ptr<Config> config)
     updateDisplayURL();
     updateDisplayPort();
 
-    m_config->serverURL()->changedEmptySignal()->connect(this, &SettingsScreen::updateDisplayURL);
-    m_config->serverPort()->changedEmptySignal()->connect(this, &SettingsScreen::updateDisplayPort);
+    // m_config->serverURL()->changedEmptySignal()->connect(this, &SettingsScreen::updateDisplayURL);
+    // m_config->serverPort()->changedEmptySignal()->connect(this, &SettingsScreen::updateDisplayPort);
 }
 
 bool SettingsScreen::isActive() const { return m_active; }

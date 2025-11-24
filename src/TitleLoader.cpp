@@ -5,10 +5,9 @@
 
 TitleLoader::TitleLoader()
     : m_SDTitlesLoaded(false)
-    , m_loaderWorker(new Worker([this](Worker*) { loadWorkerMain(); }, 4, (0x8000 * NumChunkWorkers) + 0x1000))
+    , m_loaderWorker(new Worker([this](Worker*) { loadWorkerMain(); }, 4, 0x8000))
     , m_hashWorker(new Worker([this](Worker*) { hashWorkerMain(); }, 3, 0x3000)) {
     amInit();
-
     reloadTitles();
 }
 
@@ -20,15 +19,9 @@ TitleLoader::~TitleLoader() {
     m_loaderWorker->waitForExit();
     m_loaderWorker.reset();
 
-    for(auto& worker : m_chunkWorkers) {
-        worker.waitForExit();
-        worker.setWorkerFunc(nullptr);
-    }
-
     m_hashWorker->waitForExit();
     m_hashWorker.reset();
 
-    m_titles.clear();
     amExit();
 }
 
@@ -78,11 +71,15 @@ void TitleLoader::loadSDTitles(u32 numTitles) {
             return;
         }
 
-        m_chunkWorkerTitles[titleNum++ % m_chunkWorkers.size()].push(TitleEntry{
-            .id        = id,
-            .mediaType = MEDIATYPE_SD,
-            .cardType  = CARD_CTR,
-        });
+        std::shared_ptr<Title> title = std::make_shared<Title>(id, MEDIATYPE_SD, CARD_CTR);
+        if(title == nullptr || !title->valid()) {
+            m_titlesLoadedChangedSignal(++m_titlesLoaded);
+            continue;
+        }
+
+        m_titlesLoadedChangedSignal(++m_titlesLoaded);
+        std::unique_lock lock(m_titlesMutex);
+        m_titles.push_back(title);
     }
 }
 
@@ -125,34 +122,6 @@ void TitleLoader::loadWorkerMain() {
         m_titlesLoadedChangedSignal(m_titlesLoaded);
     }
 
-    for(size_t i = 0; i < m_chunkWorkers.size(); i++) {
-        m_chunkWorkers[i] = Worker(
-            [this, i](Worker*) {
-                auto& entries = m_chunkWorkerTitles[i];
-                while(!entries.empty()) {
-                    if(m_loaderWorker->waitingForExit()) {
-                        return;
-                    }
-
-                    const auto& entry = entries.top();
-
-                    std::shared_ptr<Title> title = std::make_shared<Title>(entry.id, entry.mediaType, entry.cardType);
-                    entries.pop();
-
-                    if(title == nullptr || !title->valid()) {
-                        m_titlesLoadedChangedSignal(++m_titlesLoaded);
-                        continue;
-                    }
-
-                    m_titlesLoadedChangedSignal(++m_titlesLoaded);
-                    std::unique_lock lock(m_titlesMutex);
-                    m_titles.push_back(title);
-                }
-            },
-            4, 0x6000
-        );
-    }
-
     if(!m_SDTitlesLoaded) {
         m_SDTitlesLoaded = true;
 
@@ -161,20 +130,19 @@ void TitleLoader::loadWorkerMain() {
 
     if(m_loaderWorker->waitingForExit()) {
         Logger::info("Load Worker", "Exiting early");
+
         return;
     }
 
-    for(auto& worker : m_chunkWorkers) {
-        worker.start();
-    }
-
-    for(auto& worker : m_chunkWorkers) {
-        worker.waitForExit();
+    if(m_loaderWorker->waitingForExit()) {
+        Logger::info("Load Worker", "Exiting early");
+        return;
     }
 
     Logger::info("Load Worker", "Loaded {} titles", m_titles.size());
+
     m_titlesFinishedLoadingSignal();
-    m_hashWorker->start();
+    reloadHashes();
 }
 
 enum Priority {

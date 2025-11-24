@@ -32,6 +32,14 @@
 
 #define BADGE(...) _BADGE(.backgroundColor = __VA_ARGS__)
 
+void MainScreen::updateTitleNames() {
+    m_titleTexts.clear();
+
+    for(auto title : m_loader->titles()) {
+        m_titleTexts += title->longDescription();
+    }
+}
+
 void MainScreen::updateLoadedText(size_t loaded) {
     m_loadedText   = std::format("{}/{} Loaded", loaded, m_loader->totalTitles());
     m_loadedString = { .isStaticallyAllocated = false, .length = static_cast<int32_t>(m_loadedText.size()), .chars = m_loadedText.c_str() };
@@ -54,25 +62,19 @@ void MainScreen::onClientRequestFailed(std::string status) {
     m_okActive = true;
 }
 
-MainScreen::MainScreen(std::shared_ptr<Config> config, std::shared_ptr<TitleLoader> loader, std::shared_ptr<Client> client)
+MainScreen::MainScreen(Config* config, TitleLoader* loader, Client* client)
     : m_config(config)
     , m_loader(loader)
     , m_client(client)
-    , m_settingsScreen(new SettingsScreen(config))
+    , m_settingsScreen(config)
     , m_selectedTitle(0) {
-    m_loader->titlesLoadedChangedSignal()->connect(this, &MainScreen::updateLoadedText);
+    // m_loader->titlesLoadedChangedSignal()->connect(this, &MainScreen::updateLoadedText);
 
-    m_client->networkQueueChangedSignal()->connect(this, &MainScreen::updateQueuedText);
-    m_client->requestStatusChangedSignal()->connect(this, &MainScreen::updateRequestStatusText);
-    m_client->requestFailedSignal()->connect(this, &MainScreen::onClientRequestFailed);
+    // m_client->networkQueueChangedSignal()->connect(this, &MainScreen::updateQueuedText);
+    // m_client->requestStatusChangedSignal()->connect(this, &MainScreen::updateRequestStatusText);
+    // m_client->requestFailedSignal()->connect(this, &MainScreen::onClientRequestFailed);
 
-    m_loader->titlesFinishedLoadingSignal()->connect([this]() {
-        m_titleTexts.clear();
-
-        for(auto title : m_loader->titles()) {
-            m_titleTexts += title->longDescription();
-        }
-    });
+    // m_loader->titlesFinishedLoadingSignal()->connect(this, &MainScreen::updateTitleNames);
 }
 
 void MainScreen::scrollToCurrent() {
@@ -122,8 +124,8 @@ void MainScreen::tryDownload(Container container) {
 }
 
 void MainScreen::update() {
-    if(m_settingsScreen->isActive()) {
-        m_settingsScreen->update();
+    if(m_settingsScreen.isActive()) {
+        m_settingsScreen.update();
         return;
     }
 
@@ -169,7 +171,7 @@ void MainScreen::update() {
     }
 
     if(kDown & KEY_Y) {
-        m_settingsScreen->setActive();
+        m_settingsScreen.setActive();
         return;
     }
 
@@ -290,7 +292,7 @@ void MainScreen::handleButtonHover(Clay_ElementId elementId, Clay_PointerData po
         m_client->setProcessRequests();
     }
     else if(elementId.id == CLAY_ID("Settings").id && !m_loader->isLoadingTitles()) {
-        m_settingsScreen->setActive();
+        m_settingsScreen.setActive();
     }
 }
 
@@ -581,15 +583,15 @@ void MainScreen::renderTop() {
             CLAY_TEXT(CLAY_STRING("Extdata"), textConfig);
         }
 
-        if(m_yesNoActive || m_okActive || m_settingsScreen->isActive()) {
+        if(m_yesNoActive || m_okActive || m_settingsScreen.isActive()) {
             YES_NO_OVERLAY;
         }
     }
 }
 
 void MainScreen::renderBottom() {
-    if(m_settingsScreen->isActive()) {
-        m_settingsScreen->renderBottom();
+    if(m_settingsScreen.isActive()) {
+        m_settingsScreen.renderBottom();
         return;
     }
 

@@ -19,13 +19,24 @@ typedef enum {
     UNKNOWN
 } leak_list_node_allocated_with;
 
+typedef struct {
+    const char* symbol;
+
+    uintptr_t address;
+    uintptr_t offset;
+} leak_list_trace;
+
+#define LEAK_LIST_NODE_MAX_TRACES 3
 typedef struct leak_list_node {
     struct leak_list_node* next;
 
     void* data;
     size_t dataSize;
+
     u8 allocatedWith;
 
+    int tracesSize;
+    leak_list_trace traces[LEAK_LIST_NODE_MAX_TRACES];
 } leak_list_node;
 
 void initLeakDetector();

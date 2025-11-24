@@ -1,6 +1,6 @@
 #include <clay_renderer_C2D.hpp>
+#include <map>
 #include <memory>
-#include <unordered_map>
 
 #define C2D_CLAY_COLOR(color) C2D_Color32(color.r, color.g, color.b, color.a);
 
@@ -21,10 +21,9 @@ struct CacheEntry {
 };
 
 // key is clay id, use ptr to clear memory fully
-static std::unique_ptr<std::unordered_map<uint32_t, CacheEntry>> s_textCache;
+static std::map<uint32_t, CacheEntry> s_textCache;
 
 void C2D_Clay_Init() {
-    s_textCache = std::make_unique<std::unordered_map<uint32_t, CacheEntry>>();
     gfxInitDefault();
 
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
@@ -34,7 +33,7 @@ void C2D_Clay_Init() {
 }
 
 void C2D_Clay_Exit() {
-    for(auto entry : *s_textCache) {
+    for(auto entry : s_textCache) {
         if(entry.second.text.buf == nullptr) {
             continue;
         }
@@ -42,7 +41,7 @@ void C2D_Clay_Exit() {
         C2D_TextBufDelete(entry.second.text.buf);
     }
 
-    s_textCache.reset();
+    s_textCache.clear();
 
     C2D_Fini();
     C3D_Fini();
@@ -303,8 +302,8 @@ void C2D_Clay_RenderClayCommands(Clay_C2DRendererData* rendererData, Clay_Render
 
             uint32_t hash = hashStr(contents, len);
 
-            auto it = s_textCache->find(rcmd->id);
-            if(it == s_textCache->end()) {
+            auto it = s_textCache.find(rcmd->id);
+            if(it == s_textCache.end()) {
                 C2D_TextBuf buf = C2D_TextBufNew(len + 1);
                 C2D_Text text;
 
@@ -321,7 +320,7 @@ void C2D_Clay_RenderClayCommands(Clay_C2DRendererData* rendererData, Clay_Render
                 free(str);
 
                 C2D_TextOptimize(&text);
-                it = s_textCache->insert({ rcmd->id, { text, hash } }).first;
+                it = s_textCache.insert({ rcmd->id, { text, hash } }).first;
             }
             else if(it->second.textHash != hash) {
                 C2D_Text text   = it->second.text;

@@ -6,6 +6,7 @@
 #include <Title.hpp>
 #include <array>
 #include <atomic>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <stack>
@@ -50,10 +51,6 @@ private:
         FS_MediaType mediaType;
         FS_CardType cardType;
     };
-
-    static constexpr size_t NumChunkWorkers = 3;
-    std::array<Worker, NumChunkWorkers> m_chunkWorkers;
-    std::array<std::stack<TitleEntry>, NumChunkWorkers> m_chunkWorkerTitles;
 
     bool m_SDTitlesLoaded;
 

@@ -9,12 +9,12 @@
 #define SOC_ALIGN      0x1000
 #define SOC_BUFFERSIZE 0x100000
 
+Result Client::performFailError() { return MAKERESULT(RL_PERMANENT, RS_NOTFOUND, RM_APPLICATION, RD_NO_DATA); }
+Result Client::invalidStatusCodeError() { return MAKERESULT(RL_PERMANENT, RS_INVALIDRESVAL, RM_APPLICATION, RD_INVALID_COMBINATION); }
+
 bool Client::SOCInitialized = false;
 u32* Client::SOCBuffer      = nullptr;
 size_t Client::numClients   = 0;
-
-Result Client::performFailError() { return MAKERESULT(RL_PERMANENT, RS_NOTFOUND, RM_APPLICATION, RD_NO_DATA); }
-Result Client::invalidStatusCodeError() { return MAKERESULT(RL_PERMANENT, RS_INVALIDRESVAL, RM_APPLICATION, RD_INVALID_COMBINATION); }
 
 bool Client::initSOC() {
     if(SOCInitialized) {
@@ -64,7 +64,7 @@ bool Client::initSOC() {
 }
 
 void Client::closeSOC() {
-    if(!SOCInitialized || numClients >= 1) {
+    if(!SOCInitialized || numClients != 0) {
         return;
     }
 
@@ -97,6 +97,12 @@ Client::Client(std::string url)
 }
 
 Client::~Client() {
+    if(!m_valid) {
+        return;
+    }
+
+    m_valid = false;
+
     m_networkQueueChangedSignal.setBlocked(true);
     m_requestProgressChangedSignal.setBlocked(true);
     m_titleCacheChangedSignal.setBlocked(true);
@@ -104,12 +110,11 @@ Client::~Client() {
     m_requestStatusChangedSignal.setBlocked(true);
     m_requestFailedSignal.setBlocked(true);
 
-    if(m_valid && numClients != 0) {
+    m_requestWorker->waitForExit();
+
+    if(numClients != 0) {
         numClients--;
     }
-
-    m_requestWorker->waitForExit();
-    m_requestWorker.reset();
 
     closeSOC();
 }

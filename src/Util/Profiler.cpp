@@ -16,8 +16,8 @@ ProfilerScope::~ProfilerScope() {
 #endif
 }
 
-std::unordered_map<u64, Profiler::RunningEntry> Profiler::s_runningEntries = {};
-std::map<std::string, Profiler::ProfilerEntry> Profiler::s_entries         = {};
+std::map<u64, Profiler::RunningEntry> Profiler::s_runningEntries   = {};
+std::map<std::string, Profiler::ProfilerEntry> Profiler::s_entries = {};
 
 std::mutex Profiler::s_entriesMutex        = std::mutex();
 std::mutex Profiler::s_runningEntriesMutex = std::mutex();

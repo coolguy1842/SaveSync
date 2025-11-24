@@ -8,7 +8,7 @@
 
 class SettingsScreen : public Screen {
 public:
-    SettingsScreen(std::shared_ptr<Config> config);
+    SettingsScreen(Config* config);
 
     void update();
 

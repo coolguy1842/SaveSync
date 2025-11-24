@@ -7,14 +7,14 @@ const u16 defaultPort        = 8000;
 const Layout defaultLayout   = GRID;
 
 Config::Config()
-    : m_serverURL(new Option<std::string>("Server URL", defaultURL))
-    , m_serverPort(new Option<u16>("Server Port", defaultPort))
-    , m_layout(new Option<Layout>("Layout", defaultLayout)) {
+    : m_serverURL(std::make_shared<Option<std::string>>("Server URL", defaultURL))
+    , m_serverPort(std::make_shared<Option<u16>>("Server Port", defaultPort))
+    , m_layout(std::make_shared<Option<Layout>>("Layout", defaultLayout)) {
     load();
 
-    m_serverURL->changedEmptySignal()->connect(this, &Config::save);
-    m_serverPort->changedEmptySignal()->connect(this, &Config::save);
-    m_layout->changedEmptySignal()->connect(this, &Config::save);
+    // m_serverURL->changedEmptySignal()->connect(this, &Config::save);
+    // m_serverPort->changedEmptySignal()->connect(this, &Config::save);
+    // m_layout->changedEmptySignal()->connect(this, &Config::save);
 }
 
 std::shared_ptr<Option<std::string>> Config::serverURL() { return m_serverURL; }

@@ -59,7 +59,7 @@ private:
     };
 
     // key is the thread priority, number is start time
-    static std::unordered_map<u64, RunningEntry> s_runningEntries;
+    static std::map<u64, RunningEntry> s_runningEntries;
     static std::map<std::string, ProfilerEntry> s_entries;
 
     static std::mutex s_entriesMutex;

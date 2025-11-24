@@ -10,7 +10,7 @@
 
 class MainScreen : public Screen {
 public:
-    MainScreen(std::shared_ptr<Config> config, std::shared_ptr<TitleLoader> loader, std::shared_ptr<Client> client);
+    MainScreen(Config* config, TitleLoader* loader, Client* client);
     ~MainScreen() = default;
 
     void update();
@@ -19,6 +19,8 @@ public:
     void renderBottom();
 
 private:
+    void updateTitleNames();
+
     void updateLoadedText(size_t loaded);
     void updateQueuedText(size_t queueSize, bool processing);
     void updateRequestStatusText(std::string status);
@@ -41,11 +43,11 @@ private:
     void tryDownload(Container container);
     void tryUpload(Container container);
 
-    std::shared_ptr<Config> m_config;
-    std::shared_ptr<TitleLoader> m_loader;
-    std::shared_ptr<Client> m_client;
+    Config* m_config;
+    TitleLoader* m_loader;
+    Client* m_client;
 
-    std::unique_ptr<SettingsScreen> m_settingsScreen;
+    SettingsScreen m_settingsScreen;
     size_t m_selectedTitle = 0;
 
     u16 m_rows        = 0;

@@ -25,15 +25,19 @@ public:
     void setConsole(bool enabled, gfxScreen_t screen);
 
 private:
-    void updateURL();
+    void updateTitlesOutOfDate();
+    void updateTitleOutOfDate(std::shared_ptr<Title> title, Container container);
+
     void tryUpdateClientURL(size_t, bool);
 
+private:
+    void updateURL();
     void initClay();
 
     bool m_shouldExit;
 
-    std::shared_ptr<Config> m_config;
-    std::shared_ptr<TitleLoader> m_loader;
+    Config m_config;
+    TitleLoader m_loader;
     std::shared_ptr<Client> m_client;
 
     std::unique_ptr<MainScreen> m_mainScreen;
@@ -60,8 +64,11 @@ private:
 
 #ifdef DEBUG
     PrintConsole m_console;
-    std::array<u16, TOP_SCREEN_WIDTH * TOP_SCREEN_HEIGHT> m_dummyTopFramebuffer;
-    std::array<u16, BOTTOM_SCREEN_WIDTH * BOTTOM_SCREEN_HEIGHT> m_dummyBottomFramebuffer;
+    // std::array<u16, TOP_SCREEN_WIDTH * TOP_SCREEN_HEIGHT> m_dummyTopFramebuffer;
+    // std::array<u16, BOTTOM_SCREEN_WIDTH * BOTTOM_SCREEN_HEIGHT> m_dummyBottomFramebuffer;
+
+    std::unique_ptr<u16> m_dummyTopFramebuffer;
+    std::unique_ptr<u16> m_dummyBottomFramebuffer;
 
 #ifdef REDIRECT_CONSOLE
     int stdoutDup;
