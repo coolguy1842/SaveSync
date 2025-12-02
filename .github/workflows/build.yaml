@@ -39,13 +39,13 @@ jobs:
           args: bash -c "git config --global --add safe.directory /github/workspace && cmake --build build"
 
       - uses: actions/github-script@v8
+        continue-on-error: true
         with:
           github-token: ${{secrets.REPO_TOKEN}}
           script: |
             const { owner, repo } = context.repo
             const { data: { id } } = await github.rest.repos.getReleaseByTag({ owner, repo, tag: '${{ github.ref_name }}' })
             await github.rest.repos.deleteRelease({ owner, repo, release_id: id })
-            await github.rest.git.deleteRef({ owner, repo, ref: 'tags/${{ github.ref_name }}'' })
 
       - name: Release
         uses: softprops/action-gh-release@v2
