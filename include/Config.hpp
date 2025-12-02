@@ -5,7 +5,7 @@
 
 #include <FS/Archive.hpp>
 #include <FS/File.hpp>
-#include <sigs.h>
+#include <rocket.hpp>
 #include <string>
 #include <unordered_map>
 
@@ -22,8 +22,8 @@ public:
         , m_value(defaultValue) {}
 
     ~Option() {
-        m_changedSignal.setBlocked(true);
-        m_changedEmptySignal.setBlocked(true);
+        changedSignal.clear();
+        changedEmptySignal.clear();
     }
 
     std::string key() const { return m_key; }
@@ -33,23 +33,20 @@ public:
     void setValue(T value) {
         if(value != m_value) {
             m_value = value;
-            m_changedSignal(m_value);
-            m_changedEmptySignal();
+            changedSignal(m_value);
+            changedEmptySignal();
         }
     }
 
-    [[nodiscard]] auto changedSignal() { return m_changedSignal.interface(); }
-    [[nodiscard]] auto changedEmptySignal() { return m_changedEmptySignal.interface(); }
+    rocket::thread_safe_signal<void(const T&)> changedSignal;
+    rocket::thread_safe_signal<void()> changedEmptySignal;
 
 private:
     std::string m_key;
     T m_value;
-
-    sigs::Signal<void(const T&)> m_changedSignal;
-    sigs::Signal<void()> m_changedEmptySignal;
 };
 
-class Config {
+class Config : rocket::trackable {
 public:
     Config();
 

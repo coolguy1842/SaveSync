@@ -1,7 +1,7 @@
 #include <Client.hpp>
 #include <Config.hpp>
+#include <Debug/Logger.hpp>
 #include <Util/CURLEasy.hpp>
-#include <Util/Logger.hpp>
 #include <cstdlib>
 #include <format>
 #include <malloc.h>
@@ -80,7 +80,7 @@ void Client::closeSOC() {
 Client::Client(std::string url)
     : m_valid(false)
     , m_url(url)
-    , m_requestWorker(new Worker([this](Worker*) { queueWorkerMain(); }, 6, 0x10000))
+    , m_requestWorker(std::make_unique<Worker>([this](Worker*) { queueWorkerMain(); }, 6, 0x10000))
     , m_serverOnline(false)
     , m_titleInfoCached(false)
     , m_processRequests(true)
@@ -93,24 +93,30 @@ Client::Client(std::string url)
     }
 
     numClients++;
+
+    CondVar_Init(&m_requestSignal);
     m_valid = true;
 }
 
 Client::~Client() {
+    networkQueueChangedSignal.clear();
+    requestProgressChangedSignal.clear();
+    titleCacheChangedSignal.clear();
+    titleInfoChangedSignal.clear();
+    requestStatusChangedSignal.clear();
+    requestFailedSignal.clear();
+
     if(!m_valid) {
         return;
     }
 
     m_valid = false;
 
-    m_networkQueueChangedSignal.setBlocked(true);
-    m_requestProgressChangedSignal.setBlocked(true);
-    m_titleCacheChangedSignal.setBlocked(true);
-    m_titleInfoChangedSignal.setBlocked(true);
-    m_requestStatusChangedSignal.setBlocked(true);
-    m_requestFailedSignal.setBlocked(true);
+    m_requestWorker->signalShouldExit();
+    CondVar_Broadcast(&m_requestSignal);
 
     m_requestWorker->waitForExit();
+    m_requestWorker.reset();
 
     if(numClients != 0) {
         numClients--;
@@ -118,8 +124,6 @@ Client::~Client() {
 
     closeSOC();
 }
-
-bool Client::cachedTitleInfoLoaded() const { return m_titleInfoCached; }
 
 bool Client::valid() const { return m_valid; }
 bool Client::wifiEnabled() {

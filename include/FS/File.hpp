@@ -48,8 +48,6 @@ private:
     File(std::shared_ptr<Archive> archive, FS_Path path, u32 flags, u32 attributes);
     File(FS_ArchiveID archiveID, FS_Path archivePath, FS_Path path, u32 flags, u32 attributes);
 
-    bool initAttributes();
-
     bool m_valid;
     Handle m_handle;
 

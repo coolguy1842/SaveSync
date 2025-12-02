@@ -1,6 +1,7 @@
 #include <FS/Archive.hpp>
 #include <FS/Directory.hpp>
 #include <FS/File.hpp>
+#include <vector>
 
 class DirectoryEntryPrivate {
 public:
@@ -61,7 +62,15 @@ std::shared_ptr<File> DirectoryEntry::openFile(u32 flags, u32 attributes) {
     return File::open(q_ptr->m_archive, path(), flags, attributes);
 }
 
-std::shared_ptr<Directory> Directory::open(std::shared_ptr<Archive> archive, std::u16string path) { return std::shared_ptr<Directory>(new Directory(archive, path)); }
+std::shared_ptr<Directory> Directory::open(std::shared_ptr<Archive> archive, std::u16string path) {
+    struct make_shared_enabler : public Directory {
+        make_shared_enabler(std::shared_ptr<Archive> archive, std::u16string path)
+            : Directory(archive, path) {}
+    };
+
+    return std::make_shared<make_shared_enabler>(archive, path);
+}
+
 Directory::Directory(std::shared_ptr<Archive> archive, std::u16string path)
     : m_valid(false)
     , m_path(path)
@@ -72,20 +81,12 @@ Directory::Directory(std::shared_ptr<Archive> archive, std::u16string path)
         return;
     }
 
-    reloadEntries();
+    _reloadEntries();
     if(R_FAILED(m_lastResult)) {
         return;
     }
 
     m_valid = true;
-}
-
-Directory::~Directory() {
-    if(!m_valid) {
-        return;
-    }
-
-    m_entries.clear();
 }
 
 bool Directory::valid() const { return m_valid; }
@@ -94,25 +95,38 @@ std::u16string Directory::path() const { return m_path; }
 Result Directory::lastResult() const { return m_lastResult; }
 
 void Directory::reloadEntries() {
+    if(!m_valid) {
+        m_lastResult = MAKERESULT(RL_PERMANENT, RS_INVALIDARG, RM_APPLICATION, RD_INVALID_HANDLE);
+        return;
+    }
+
+    _reloadEntries();
+}
+
+void Directory::_reloadEntries() {
     m_entries.clear();
 
     Handle handle;
     if(R_FAILED((m_lastResult = FSUSER_OpenDirectory(&handle, m_archive->handle(), fsMakePath(PATH_UTF16, m_path.c_str()))))) {
-        FSDIR_Close(handle);
         return;
     }
 
-    u32 result;
+    const size_t maxEntries = 32;
+    std::vector<FS_DirectoryEntry> entries(maxEntries);
+
+    u32 entriesRead = 0;
     do {
-        FS_DirectoryEntry entry;
-        if(R_FAILED((m_lastResult = FSDIR_Read(handle, &result, 1, &entry)))) {
+        if(R_FAILED((m_lastResult = FSDIR_Read(handle, &entriesRead, entries.size(), entries.data())))) {
+            m_entries.clear();
+            FSDIR_Close(handle);
+
             return;
         }
 
-        if(result != 0) {
-            m_entries.push_back(std::make_shared<DirectoryEntry>(std::unique_ptr<DirectoryEntryPrivate>(new DirectoryEntryPrivate(m_archive, entry, m_path))));
+        for(u32 i = 0; i < entriesRead; i++) {
+            m_entries.push_back(std::make_shared<DirectoryEntry>(std::make_unique<DirectoryEntryPrivate>(m_archive, entries[i], m_path)));
         }
-    } while(result);
+    } while(entriesRead == maxEntries);
 
     if(R_FAILED((m_lastResult = FSDIR_Close(handle)))) {
         m_entries.clear();

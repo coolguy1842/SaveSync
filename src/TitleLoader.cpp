@@ -1,17 +1,21 @@
+#include <Debug/Logger.hpp>
+#include <Debug/Profiler.hpp>
 #include <TitleLoader.hpp>
-#include <Util/Logger.hpp>
-#include <Util/Profiler.hpp>
 #include <map>
 
 TitleLoader::TitleLoader()
     : m_SDTitlesLoaded(false)
-    , m_loaderWorker(new Worker([this](Worker*) { loadWorkerMain(); }, 4, 0x1000000))
-    , m_hashWorker(new Worker([this](Worker*) { hashWorkerMain(); }, 3, 0x3000)) {
+    , m_loaderWorker(std::make_unique<Worker>([this](Worker*) { loadWorkerMain(); }, 4, 0x9000))
+    , m_hashWorker(std::make_unique<Worker>([this](Worker*) { hashWorkerMain(); }, 3, 0x3000)) {
     amInit();
     reloadTitles();
 }
 
 TitleLoader::~TitleLoader() {
+    titlesLoadedChangedSignal.clear();
+    titlesFinishedLoadingSignal.clear();
+    titleHashedSignal.clear();
+
     m_loaderWorker->waitForExit();
     m_loaderWorker.reset();
 
@@ -53,32 +57,29 @@ void TitleLoader::loadSDTitles(u32 numTitles) {
         return;
     }
 
-    u64* ids = new u64[numTitles];
-    if(R_FAILED(res = AM_GetTitleList(&numTitles, MEDIATYPE_SD, numTitles, ids))) {
+    std::vector<u64> ids(numTitles);
+    if(R_FAILED(res = AM_GetTitleList(&numTitles, MEDIATYPE_SD, numTitles, ids.data()))) {
         Logger::warn("Load SD Titles", "Failed to get SDCard title list");
         Logger::warn("Load SD Titles", res);
 
         return;
     }
 
-    for(u32 i = 0; i < numTitles; i++) {
+    for(u64 id : ids) {
+        // Logger::log("Load SD Titles", "Loading {:X}", id);
+
         if(m_loaderWorker->waitingForExit()) {
             Logger::info("Load SD Titles", "Exiting early");
             return;
         }
 
-        u64 id = ids[i];
-        (void)id;
-
         std::shared_ptr<Title> title = std::make_shared<Title>(id, MEDIATYPE_SD, CARD_CTR);
-
-        m_titlesLoaded++;
-        if(title == nullptr || !title->valid()) {
-            continue;
+        if(title != nullptr && title->valid()) {
+            auto lock = m_titlesMutex.lock();
+            m_titles.push_back(title);
         }
 
-        std::unique_lock lock(m_titlesMutex);
-        m_titles.push_back(title);
+        titlesLoadedChangedSignal(++m_titlesLoaded);
     }
 }
 
@@ -113,12 +114,14 @@ void TitleLoader::loadWorkerMain() {
         }
 
         m_titlesLoaded = 0;
+        titlesLoadedChangedSignal(m_titlesLoaded);
 
         loadSDTitles(sdTitles);
         m_SDTitlesLoaded = true;
     }
     else {
         sdTitles = m_totalTitles = m_titlesLoaded = m_titles.size();
+        titlesLoadedChangedSignal(m_titlesLoaded);
     }
 
     if(m_loaderWorker->waitingForExit()) {
@@ -127,7 +130,8 @@ void TitleLoader::loadWorkerMain() {
     }
 
     Logger::info("Load Worker", "Loaded {} titles", m_titles.size());
-    // reloadHashes();
+    titlesFinishedLoadingSignal();
+    reloadHashes();
 }
 
 enum Priority {
@@ -161,8 +165,8 @@ void TitleLoader::hashWorkerMain() {
             std::vector<FileInfo> files;
             {
                 // this will wait for any operation to be done
-                std::unique_lock lock(title->containerMutex(type));
-                files = title->getContainerFiles(type);
+                auto lock = title->containerMutex(type).lock();
+                files     = title->getContainerFiles(type);
             }
 
             if(files.size() <= 0) {
@@ -191,13 +195,14 @@ void TitleLoader::hashWorkerMain() {
 
     for(const auto& entry : containers) {
         for(const auto& pair : entry.second) {
+            pair.first->hashContainer(pair.second);
+
             if(m_hashWorker->waitingForExit()) {
                 Logger::info("Hash Worker", "Exiting early");
-
                 return;
             }
 
-            pair.first->hashContainer(pair.second);
+            titleHashedSignal(pair.first, pair.second);
         }
     }
 

@@ -5,9 +5,9 @@
 #include <citro2d.h>
 
 #include <FS/Archive.hpp>
+#include <Util/Mutex.hpp>
 #include <Util/SMDH.hpp>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -68,7 +68,7 @@ public:
     C2D_Image* icon();
 
     std::shared_ptr<Archive> openContainer(Container container) const;
-    std::mutex& containerMutex(Container container);
+    Mutex& containerMutex(Container container);
 
     bool containerAccessible(Container container) const;
 
@@ -89,7 +89,7 @@ private:
     std::vector<FileInfo>& containerFiles(Container container);
 
     // to be run with a worker in the background
-    void loadContainerFiles(Container container, bool cache = true, std::shared_ptr<Archive> archive = nullptr);
+    void loadContainerFiles(Container container, bool cache = true, std::shared_ptr<Archive> archive = nullptr, bool lock = true);
 
     bool loadSMDHData();
 
@@ -101,9 +101,9 @@ private:
     bool m_saveAccessible;
     bool m_extdataAccessible;
 
-    std::mutex m_saveMutex;
-    std::mutex m_extdataMutex;
-    std::mutex m_cacheMutex;
+    Mutex m_saveMutex;
+    Mutex m_extdataMutex;
+    Mutex m_cacheMutex;
 
     u64 m_id;
     FS_MediaType m_mediaType;

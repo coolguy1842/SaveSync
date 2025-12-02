@@ -3,9 +3,9 @@
 
 #include <FS/File.hpp>
 #include <Util/Defines.hpp>
+#include <Util/Mutex.hpp>
 #include <format>
 #include <memory>
-#include <mutex>
 #include <stdio.h>
 #include <string>
 
@@ -96,7 +96,7 @@ private:
     static bool s_dirInitialized;
     static bool s_dirExists;
 
-    static std::mutex s_fileMutex;
+    static Mutex s_fileMutex;
 };
 
 #endif

@@ -1,7 +1,7 @@
+#include <Debug/Logger.hpp>
+#include <Debug/Profiler.hpp>
 #include <FS/Archive.hpp>
 #include <FS/Directory.hpp>
-#include <Util/Logger.hpp>
-#include <Util/Profiler.hpp>
 #include <Util/StringUtil.hpp>
 #include <string.h>
 
@@ -33,17 +33,25 @@ struct RenameEntry {
     std::u16string newName;
 };
 
-bool Logger::s_dirInitialized  = false;
-bool Logger::s_dirExists       = false;
-std::mutex Logger::s_fileMutex = std::mutex();
+bool Logger::s_dirInitialized = false;
+bool Logger::s_dirExists      = false;
+Mutex Logger::s_fileMutex     = Mutex();
 
 std::shared_ptr<File> Logger::openLogFile() {
     const u8 maxLogs = 5;
 
+    std::shared_ptr<Archive> sdmc = Archive::sdmc();
+    if(sdmc == nullptr || !sdmc->valid()) {
+        s_dirExists      = false;
+        s_dirInitialized = true;
+
+        Logger::error("Logger File", "Failed to open sdmc");
+        return nullptr;
+    }
+
     if(!s_dirInitialized) {
-        s_dirInitialized              = true;
-        std::shared_ptr<Archive> sdmc = Archive::open(ARCHIVE_SDMC, VarPath());
-        if(sdmc == nullptr || !sdmc->valid() || !sdmc->mkdir(u"/3ds/SaveSync/logs", 0, true)) {
+        s_dirInitialized = true;
+        if(!sdmc->mkdir(u"/3ds/SaveSync/logs", 0, true)) {
             Logger::error("Logger File", "Failed to create log folder");
             s_dirExists = false;
 
@@ -110,17 +118,16 @@ std::shared_ptr<File> Logger::openLogFile() {
         return nullptr;
     }
 
-    return File::openDirect(ARCHIVE_SDMC, VarPath(), "/3ds/SaveSync/logs/log.txt", FS_OPEN_CREATE | FS_OPEN_READ | FS_OPEN_WRITE, 0);
+    return sdmc->openFile("/3ds/SaveSync/logs/log.txt", FS_OPEN_CREATE | FS_OPEN_READ | FS_OPEN_WRITE, 0);
 }
 
 void Logger::fileLogMessage(const std::string& message) {
+    auto lock = s_fileMutex.lock();
     if(message.empty()) {
         return;
     }
 
-    std::unique_lock lock(s_fileMutex);
     std::shared_ptr<File> file = openLogFile();
-
     if(file != nullptr && file->valid()) {
         u32 size = file->size();
         if(size == UINT32_MAX || !file->setSize(size + message.size())) {

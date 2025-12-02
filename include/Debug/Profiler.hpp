@@ -2,9 +2,9 @@
 #define __PROFILER_HPP__
 
 #include <3ds.h>
+#include <Util/Mutex.hpp>
 #include <map>
 #include <memory>
-#include <mutex>
 #include <unordered_map>
 #include <vector>
 
@@ -62,8 +62,8 @@ private:
     static std::map<u64, RunningEntry> s_runningEntries;
     static std::map<std::string, ProfilerEntry> s_entries;
 
-    static std::mutex s_entriesMutex;
-    static std::mutex s_runningEntriesMutex;
+    static Mutex s_entriesMutex;
+    static Mutex s_runningEntriesMutex;
 
     friend class ProfilerScope;
 };

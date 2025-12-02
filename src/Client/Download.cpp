@@ -1,10 +1,10 @@
 #include <Client.hpp>
 #include <Config.hpp>
+#include <Debug/Logger.hpp>
 #include <FS/Directory.hpp>
 #include <FS/File.hpp>
 #include <Util/CURLEasy.hpp>
 #include <Util/Defines.hpp>
-#include <Util/Logger.hpp>
 #include <Util/StringUtil.hpp>
 #include <format>
 #include <list>
@@ -244,7 +244,7 @@ Result Client::download(std::shared_ptr<Title> title, Container container) {
     }
 
     title->reloadContainerFiles(container);
-    std::unique_lock lock(title->containerMutex(container));
+    auto lock = title->containerMutex(container).lock();
 
     std::shared_ptr<Archive> archive = title->openContainer(container);
     if(archive == nullptr || !archive->valid()) {
@@ -448,7 +448,7 @@ Result Client::download(std::shared_ptr<Title> title, Container container) {
     }
 
     archive.reset();
-    lock.unlock();
+    lock.release();
 
     if(reloadFiles) {
         Logger::info("Download", "No hash received for a file, reloading title files and hashing");

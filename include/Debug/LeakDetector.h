@@ -26,7 +26,7 @@ typedef struct {
     uintptr_t offset;
 } leak_list_trace;
 
-#define LEAK_LIST_NODE_MAX_TRACES 3
+#define LEAK_LIST_NODE_MAX_TRACES 5
 typedef struct leak_list_node {
     struct leak_list_node* next;
 

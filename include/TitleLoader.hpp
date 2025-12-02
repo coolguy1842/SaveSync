@@ -4,11 +4,12 @@
 #include <3ds.h>
 
 #include <Title.hpp>
+#include <Util/Mutex.hpp>
 #include <array>
 #include <atomic>
 #include <list>
 #include <memory>
-#include <mutex>
+#include <rocket.hpp>
 #include <stack>
 #include <vector>
 
@@ -29,6 +30,11 @@ public:
 
     std::vector<std::shared_ptr<Title>> titles();
 
+public:
+    rocket::thread_safe_signal<void(const size_t&)> titlesLoadedChangedSignal;
+    rocket::thread_safe_signal<void()> titlesFinishedLoadingSignal;
+    rocket::thread_safe_signal<void(const std::shared_ptr<Title>&, const Container&)> titleHashedSignal;
+
 private:
     void loadSDTitles(u32 numTitles = 0);
 
@@ -36,7 +42,7 @@ private:
     void loadWorkerMain();
 
 private:
-    std::mutex m_titlesMutex;
+    Mutex m_titlesMutex;
     std::vector<std::shared_ptr<Title>> m_titles;
 
     struct TitleEntry {

@@ -1,20 +1,20 @@
 #include <Config.hpp>
-#include <Util/Logger.hpp>
+#include <Debug/Logger.hpp>
 #include <format>
 
 const std::string defaultURL = "http://example.com";
 const u16 defaultPort        = 8000;
 const Layout defaultLayout   = GRID;
 
-Config::Config() {
-    // : m_serverURL(std::make_shared<Option<std::string>>("Server URL", defaultURL))
-    // , m_serverPort(std::make_shared<Option<u16>>("Server Port", defaultPort))
-    // , m_layout(std::make_shared<Option<Layout>>("Layout", defaultLayout)) {
-    // load();
+Config::Config()
+    : m_serverURL(std::make_shared<Option<std::string>>("Server URL", defaultURL))
+    , m_serverPort(std::make_shared<Option<u16>>("Server Port", defaultPort))
+    , m_layout(std::make_shared<Option<Layout>>("Layout", defaultLayout)) {
+    load();
 
-    // m_serverURL->changedEmptySignal()->connect(this, &Config::save);
-    // m_serverPort->changedEmptySignal()->connect(this, &Config::save);
-    // m_layout->changedEmptySignal()->connect(this, &Config::save);
+    m_serverURL->changedEmptySignal.connect<&Config::save>(this);
+    m_serverPort->changedEmptySignal.connect<&Config::save>(this);
+    m_layout->changedEmptySignal.connect<&Config::save>(this);
 }
 
 std::shared_ptr<Option<std::string>> Config::serverURL() { return m_serverURL; }
@@ -89,7 +89,7 @@ void Config::save() {
 }
 
 std::shared_ptr<File> Config::openFile(u32 flags) {
-    std::shared_ptr<Archive> sdmc = Archive::open(ARCHIVE_SDMC, VarPath());
+    std::shared_ptr<Archive> sdmc = Archive::sdmc();
     if(sdmc == nullptr || !sdmc->valid() || !sdmc->mkdir(u"/3ds/SaveSync", 0, true)) {
         return nullptr;
     }

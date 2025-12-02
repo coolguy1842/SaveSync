@@ -28,19 +28,18 @@ function(debug_symbol_list target)
 endfunction()
 
 add_executable(${PROJECT_NAME}
-	src/Debug/LeakDetector.c
-
 	ext/src/md5.c
 	ext/src/clay_renderer_C2D.cpp
 
+	src/Debug/SymbolUtils.c
+	src/Debug/LeakDetector.c
+	src/Debug/ExceptionHandler.cpp
+	src/Debug/Profiler.cpp
+	src/Debug/Logger.cpp
+
 	src/Util/StringUtil.cpp
-	src/Util/Profiler.cpp
-	src/Util/Logger.cpp
-
-	src/Theme.cpp
-	src/Config.cpp
-
 	src/Util/Keyboard.cpp
+	src/Util/Mutex.cpp
 	src/Util/Worker.cpp
 	src/Util/CURLEasy.cpp
 	src/Util/SMDH.cpp
@@ -50,6 +49,9 @@ add_executable(${PROJECT_NAME}
 	src/FS/Directory.cpp
 	src/FS/File.cpp
 
+	src/Theme.cpp
+	src/Config.cpp
+
 	src/Title.cpp
 	src/TitleLoader.cpp
 
@@ -58,6 +60,9 @@ add_executable(${PROJECT_NAME}
 	src/Client/Info.cpp
 	src/Client/Upload.cpp
 	src/Client/Download.cpp
+
+	src/UI/SettingsScreen.cpp
+	src/UI/MainScreen.cpp
 
 	src/Application.cpp
 	src/Debug/LeakViewerApplication.cpp
@@ -118,7 +123,10 @@ ctr_generate_smdh(${PROJECT_NAME}.smdh
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 	target_compile_options(${PROJECT_NAME} PRIVATE
 		-O0
+		-ggdb3
 		-fasynchronous-unwind-tables
+		-fno-omit-frame-pointer
+		-fno-optimize-sibling-calls
 	)
 
 	target_link_options(${PROJECT_NAME} PRIVATE
@@ -142,8 +150,8 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 	ctr_create_3dsx(${PROJECT_NAME} SMDH ${PROJECT_NAME}.smdh ROMFS ${PROJECT_NAME}_romfs)
 else()
 	target_compile_options(${PROJECT_NAME} PRIVATE -D_FORTIFY_SOURCE=1)
+
 	ctr_create_3dsx(${PROJECT_NAME} SMDH ${PROJECT_NAME}.smdh)
-	
 	if(EXISTS ${PROJECT_SOURCE_DIR}/makerom)
 		set(CIA_FILE ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.cia)
 		set(BANNER_FILE ${CMAKE_CURRENT_BINARY_DIR}/banner.bnr)
@@ -184,7 +192,7 @@ else()
 		endif()
 
 		add_custom_command(
-			OUTPUT ${CIA_FILE} POST_BUILD
+			OUTPUT ${CIA_FILE}
 			COMMAND ${PROJECT_SOURCE_DIR}/makerom$<$<BOOL:${WIN32}>:.exe> ${MAKEROM_ARGS}
 			DEPENDS ${MAKEROM_DEPS}
 		)

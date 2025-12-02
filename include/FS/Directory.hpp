@@ -41,7 +41,7 @@ private:
 class Directory {
 public:
     static std::shared_ptr<Directory> open(std::shared_ptr<Archive> archive, std::u16string path);
-    ~Directory();
+    ~Directory() = default;
 
     bool valid() const;
     std::u16string path() const;
@@ -55,6 +55,7 @@ public:
 
 private:
     Directory(std::shared_ptr<Archive> archive, std::u16string path);
+    void _reloadEntries();
 
     bool m_valid;
     std::u16string m_path;

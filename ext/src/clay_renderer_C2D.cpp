@@ -415,25 +415,6 @@ void C2D_Clay_RenderClayCommands(Clay_C2DRendererData* rendererData, Clay_Render
 
                 break;
             }
-            case CUSTOM_ELEMENT_TYPE_POLYGON: {
-                u32 clr = C2D_CLAY_COLOR(config.backgroundColor);
-
-                float x = bounds.x, y = bounds.y, w = bounds.width, h = bounds.height;
-                PolygonData poly = data->polygon;
-#define X_POS(i) x + (CLAY__MIN(CLAY__MAX(poly.i.x, 0.0f), 1.0f) * w)
-#define Y_POS(i) y + (CLAY__MIN(CLAY__MAX(poly.i.y, 0.0f), 1.0f) * h)
-
-                C2D_DrawTriangle(
-                    X_POS(a), Y_POS(a), clr,
-                    X_POS(b), Y_POS(b), clr,
-                    X_POS(c), Y_POS(c), clr,
-                    0.0f
-                );
-
-#undef X_POS
-#undef Y_POS
-                break;
-            }
             default:
                 fprintf(stderr, "Unknown custom render command type: %d\n", data->type);
                 break;

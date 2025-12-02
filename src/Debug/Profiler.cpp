@@ -1,5 +1,4 @@
-#include <Util/Logger.hpp>
-#include <Util/Profiler.hpp>
+#include <Debug/Profiler.hpp>
 #include <atomic>
 
 ProfilerScope::ProfilerScope(bool valid, u64 id)
@@ -19,15 +18,15 @@ ProfilerScope::~ProfilerScope() {
 std::map<u64, Profiler::RunningEntry> Profiler::s_runningEntries   = {};
 std::map<std::string, Profiler::ProfilerEntry> Profiler::s_entries = {};
 
-std::mutex Profiler::s_entriesMutex        = std::mutex();
-std::mutex Profiler::s_runningEntriesMutex = std::mutex();
+Mutex Profiler::s_entriesMutex        = Mutex();
+Mutex Profiler::s_runningEntriesMutex = Mutex();
 ProfilerScope Profiler::start(std::string scopeName) {
 #ifdef DEBUG
     static std::atomic<u64> nextId = 0;
     u64 id                         = nextId++;
 
     {
-        std::unique_lock lock(s_entriesMutex);
+        auto lock = s_entriesMutex.lock();
         if(!s_entries.contains(scopeName)) {
             s_entries[scopeName] = ProfilerEntry{
                 .offsets = 0,
@@ -36,7 +35,7 @@ ProfilerScope Profiler::start(std::string scopeName) {
         }
     }
 
-    std::unique_lock lock(s_runningEntriesMutex);
+    auto lock            = s_runningEntriesMutex.lock();
     s_runningEntries[id] = RunningEntry{
         .scopeName = scopeName,
         .start     = svcGetSystemTick()
@@ -51,8 +50,8 @@ ProfilerScope Profiler::start(std::string scopeName) {
 
 void Profiler::reset() {
 #ifdef DEBUG
-    std::unique_lock lock(s_entriesMutex);
-    std::unique_lock lock2(s_runningEntriesMutex);
+    auto lock  = s_entriesMutex.lock();
+    auto lock2 = s_runningEntriesMutex.lock();
 
     s_entries.clear();
     s_runningEntries.clear();
@@ -61,7 +60,7 @@ void Profiler::reset() {
 
 u64 Profiler::getScopeAverage(std::string scopeName) {
 #ifdef DEBUG
-    std::unique_lock lock(s_entriesMutex);
+    auto lock = s_entriesMutex.lock();
     if(!s_entries.contains(scopeName)) {
         return 0;
     }
@@ -76,7 +75,7 @@ u64 Profiler::getScopeAverage(std::string scopeName) {
 
 std::vector<Profiler::AveragedEntry> Profiler::getAverages() {
 #ifdef DEBUG
-    std::unique_lock lock(s_entriesMutex);
+    auto lock = s_entriesMutex.lock();
 
     std::vector<AveragedEntry> averages;
     averages.reserve(s_entries.size());
@@ -102,7 +101,7 @@ void Profiler::stop(u64 id) {
 #ifdef DEBUG
     const u64 stop = svcGetSystemTick();
 
-    std::unique_lock lock(s_runningEntriesMutex);
+    auto lock = s_runningEntriesMutex.lock();
 
     auto it = s_runningEntries.find(id);
     if(it == s_runningEntries.end()) {
@@ -110,7 +109,7 @@ void Profiler::stop(u64 id) {
     }
 
     const RunningEntry& entry = it->second;
-    std::unique_lock lock2(s_entriesMutex);
+    auto lock2                = s_entriesMutex.lock();
 
     ProfilerEntry& pEntry = s_entries[entry.scopeName];
     pEntry.offsets += stop - entry.start;

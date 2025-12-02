@@ -11,6 +11,9 @@ class Directory;
 class File;
 class Archive : public std::enable_shared_from_this<Archive> {
 public:
+    static std::shared_ptr<Archive> sdmc();
+    static void closeSDMC();
+
     static std::shared_ptr<Archive> open(FS_ArchiveID id, VarPath path);
     ~Archive();
 
