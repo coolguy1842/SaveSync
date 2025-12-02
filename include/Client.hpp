@@ -5,13 +5,14 @@
 #include <curl/curl.h>
 
 #include <Title.hpp>
+#include <Util/Mutex.hpp>
 #include <Util/Worker.hpp>
+#include <atomic>
 #include <functional>
 #include <memory>
-#include <mutex>
 #include <optional>
+#include <rocket.hpp>
 #include <set>
-#include <sigs.h>
 
 struct TitleInfo {
     std::vector<FileInfo> save;
@@ -54,7 +55,7 @@ public:
     Result upload(std::shared_ptr<Title> title, Container container);
     Result download(std::shared_ptr<Title> title, Container container);
 
-    std::unordered_map<u64, TitleInfo> cachedTitleInfo() const;
+    std::unordered_map<u64, TitleInfo> cachedTitleInfo();
     bool cachedTitleInfoLoaded() const;
 
     void queueAction(QueuedRequest request);
@@ -77,20 +78,21 @@ public:
     std::string requestStatus() const;
 
 public:
+    rocket::thread_safe_signal<void(const size_t&, const bool&)> networkQueueChangedSignal;
+    rocket::thread_safe_signal<void(const u64&, const u64&)> requestProgressChangedSignal;
+    rocket::thread_safe_signal<void()> titleCacheChangedSignal;
+    rocket::thread_safe_signal<void(const u64&, const TitleInfo&)> titleInfoChangedSignal;
+    rocket::thread_safe_signal<void(const std::string&)> requestStatusChangedSignal;
+    rocket::thread_safe_signal<void(const std::string&)> requestFailedSignal;
+
+public:
     static Result noFilesUploadError();
     static Result emptyUploadError();
 
     static Result emptyDownloadError();
 
-public:
-    [[nodiscard]] auto titleCacheChangedSignal() { return m_titleCacheChangedSignal.interface(); }
-    [[nodiscard]] auto networkQueueChangedSignal() { return m_networkQueueChangedSignal.interface(); }
-    [[nodiscard]] auto requestProgressChangedSignal() { return m_requestProgressChangedSignal.interface(); }
-    [[nodiscard]] auto titleInfoChangedSignal() { return m_titleInfoChangedSignal.interface(); }
-    [[nodiscard]] auto requestStatusChangedSignal() { return m_requestStatusChangedSignal.interface(); }
-    [[nodiscard]] auto requestFailedSignal() { return m_requestFailedSignal.interface(); }
-
 private:
+    void sendQueueChangedSignal();
     void queueWorkerMain();
 
     struct DownloadAction {
@@ -147,16 +149,21 @@ private:
 
     std::unique_ptr<Worker> m_requestWorker;
     std::set<QueuedRequest> m_requestQueue;
+    std::set<QueuedRequest> m_stagingRequestQueue;
+
     std::optional<QueuedRequest> m_activeRequest;
 
-    std::mutex m_requestMutex;
+    Mutex m_requestMutex;
+    CondVar m_requestSignal;
+
+    Mutex m_cachedTitleInfoMutex;
 
     bool m_serverOnline;
     std::unordered_map<u64, TitleInfo> m_cachedTitleInfo;
 
     std::string m_requestStatus;
 
-    bool m_titleInfoCached;
+    std::atomic<bool> m_titleInfoCached;
 
     bool m_processRequests;
     bool m_processingQueueRequest;
@@ -164,14 +171,6 @@ private:
 
     u64 m_progressCurrent;
     u64 m_progressMax;
-
-private:
-    sigs::Signal<void(const size_t&, const bool&)> m_networkQueueChangedSignal;
-    sigs::Signal<void(const u64&, const u64&)> m_requestProgressChangedSignal;
-    sigs::Signal<void()> m_titleCacheChangedSignal;
-    sigs::Signal<void(const u64&, const TitleInfo&)> m_titleInfoChangedSignal;
-    sigs::Signal<void(const std::string&)> m_requestStatusChangedSignal;
-    sigs::Signal<void(const std::string&)> m_requestFailedSignal;
 };
 
 #endif

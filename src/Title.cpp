@@ -1,11 +1,12 @@
+#include <Debug/Logger.hpp>
+#include <Debug/Profiler.hpp>
 #include <FS/Directory.hpp>
 #include <FS/File.hpp>
 #include <Title.hpp>
-#include <Util/Logger.hpp>
-#include <Util/Profiler.hpp>
 #include <Util/StringUtil.hpp>
 #include <Util/Worker.hpp>
 #include <iomanip>
+#include <iostream>
 #include <list>
 #include <md5.h>
 #include <sstream>
@@ -131,7 +132,7 @@ std::shared_ptr<Archive> Title::openContainer(Container container) const {
     }
 }
 
-std::mutex& Title::containerMutex(Container container) {
+Mutex& Title::containerMutex(Container container) {
     switch(container) {
     case SAVE: return m_saveMutex;
     default:   return m_extdataMutex;
@@ -201,14 +202,10 @@ void Title::setContainerFiles(std::vector<FileInfo>& files, Container container)
     saveCache();
 }
 
-void Title::loadContainerFiles(Container container, bool cache, std::shared_ptr<Archive> archive) {
-    std::unique_lock lock(containerMutex(container));
-
-    std::vector<FileInfo>& files = containerFiles(container);
-    std::unordered_map<std::u16string, FileInfo> oldFiles;
-
-    for(const auto& file : files) {
-        oldFiles.emplace(file.nativePath, file);
+void Title::loadContainerFiles(Container container, bool cache, std::shared_ptr<Archive> archive, bool shouldLock) {
+    ScopedLock lock = ScopedLock(containerMutex(container), true);
+    if(shouldLock) {
+        lock.lock();
     }
 
     if(archive == nullptr) {
@@ -221,6 +218,12 @@ void Title::loadContainerFiles(Container container, bool cache, std::shared_ptr<
     }
 
     PROFILE_SCOPE("Load Title Container");
+    std::vector<FileInfo>& files = containerFiles(container);
+    std::unordered_map<std::u16string, FileInfo> oldFiles;
+
+    for(const auto& file : files) {
+        oldFiles.emplace(file.nativePath, file);
+    }
 
     std::vector<FileInfo> newFiles;
     std::list<std::shared_ptr<Directory>> directories = { archive->openDirectory() };
@@ -274,18 +277,18 @@ void Title::loadContainerFiles(Container container, bool cache, std::shared_ptr<
     files.swap(newFiles);
 
     if(cache) {
-        lock.unlock();
+        lock.release();
         saveCache();
     }
 }
 
 void Title::hashContainer(Container container) {
+    auto lock = containerMutex(container).lock();
+
     std::shared_ptr<Archive> archive = openContainer(container);
-    loadContainerFiles(container, false, archive);
+    loadContainerFiles(container, false, archive, false);
 
-    std::unique_lock lock(containerMutex(container));
     std::vector<FileInfo>& files = containerFiles(container);
-
     if(archive == nullptr || !archive->valid()) {
         return;
     }
@@ -336,6 +339,7 @@ void Title::hashContainer(Container container) {
 constexpr std::string formatFileInfo(Container container, FileInfo file) {
     return std::format("{}{}{}:{}\n", container == SAVE ? 's' : 'e', file.size, file.path, file.hash.value_or(" "));
 }
+constexpr size_t versionSize = 3;
 
 bool Title::loadSMDHData() {
     std::unique_ptr<SMDH> smdh = std::make_unique<SMDH>(m_id, m_mediaType);
@@ -357,8 +361,13 @@ bool Title::loadSMDHData() {
 void Title::saveCache() {
     PROFILE_SCOPE("Save Title Cache");
 
-    std::unique_lock lock(m_cacheMutex);
-    std::shared_ptr<Archive> sdmc = Archive::open(ARCHIVE_SDMC, VarPath());
+    auto lock                     = m_cacheMutex.lock();
+    std::shared_ptr<Archive> sdmc = Archive::sdmc();
+    if(sdmc == nullptr || !sdmc->valid()) {
+        Logger::error("Save Title Cache", "Failed to open sdmc");
+        return;
+    }
+
     if(!sdmc->mkdir(u"/3ds/SaveSync", 0, true)) {
         Logger::error("Save Title Cache", "Failed to create SaveSync directory");
         return;
@@ -374,7 +383,7 @@ void Title::saveCache() {
 
     std::ostringstream stream;
     // version
-    stream << "1";
+    stream << std::setfill('0') << std::setw(versionSize) << "1";
     stream << std::left << std::setfill('\0') << std::setw(sizeof(SMDH::ApplicationTitle::shortDescription) / sizeof(u16)) << m_shortDescription;
     stream << std::left << std::setfill('\0') << std::setw(sizeof(SMDH::ApplicationTitle::longDescription) / sizeof(u16)) << m_longDescription;
 
@@ -421,10 +430,26 @@ bool Title::loadCache() {
 
     PROFILE_SCOPE("Load Title Cache");
 
-    std::unique_lock lock(m_cacheMutex);
-    std::shared_ptr<File> file = File::openDirect(ARCHIVE_SDMC, VarPath(), std::format("/3ds/SaveSync/{:X}", m_id), FS_OPEN_READ, 0);
+    auto lock                     = m_cacheMutex.lock();
+    std::shared_ptr<Archive> sdmc = Archive::sdmc();
+    std::shared_ptr<File> file;
+
+    if(sdmc == nullptr || !sdmc->valid()) {
+        goto invalidSDMC;
+    }
+
+    file = sdmc->openFile(std::format("/3ds/SaveSync/{:X}", m_id), FS_OPEN_READ, 0);
     if(file == nullptr || !file->valid()) {
         Logger::info("Load Cached Title Files", "Cache doesn't exist for {:X}, creating", m_id);
+
+        if(false) {
+        invalidSDMC:
+            Logger::info("Load Title Cached Files", "Failed to open sdmc");
+            if(sdmc != nullptr) {
+                Logger::info("Load Title Cached Files", sdmc->lastResult());
+            }
+        }
+
         if(false) {
         invalidCache:
             Logger::info("Load Title Cached Files", "Cache doesn't have required entries for {:X}, updating", m_id);
@@ -436,7 +461,7 @@ bool Title::loadCache() {
         }
 
         file.reset();
-        lock.unlock();
+        lock.release();
 
         if(m_saveAccessible) loadContainerFiles(SAVE, false);
         if(m_extdataAccessible) loadContainerFiles(EXTDATA, false);
@@ -450,75 +475,71 @@ bool Title::loadCache() {
         goto invalidCache;
     }
 
-    std::string fileBuf = file->readStr(fileSize, 0);
-    if(fileBuf.size() != fileSize || R_FAILED(file->lastResult())) {
+    char version[versionSize];
+
+    u64 read = file->read(version, versionSize, 0);
+    if(read != versionSize || R_FAILED(file->lastResult())) {
         goto invalidCache;
     }
 
-    u64 offset = 0;
-    if(!isdigit(fileBuf[0]) || fileBuf[0] == '0') {
-        Logger::warn("Load Title Cache", "Invalid version {}", fileBuf[0]);
+    if(strncmp(version, "001", versionSize) != 0) {
         goto invalidCache;
     }
 
-    u8 version = fileBuf[0] - '0';
-    offset += 1;
+    size_t offset = read;
+    if(fileSize - offset < sizeof(TitleData)) {
+        goto invalidCache;
+    }
 
-    switch(version) {
-    case 1: {
-        // + 1 for version number
-        if(fileSize - offset < sizeof(TitleData)) {
+    TitleData titleData;
+    read = file->read(&titleData, sizeof(TitleData), offset);
+
+    if(read != sizeof(titleData) || R_FAILED(file->lastResult())) {
+        goto invalidCache;
+    }
+
+    offset += read;
+    m_shortDescription = titleData.shortDesc;
+    m_longDescription  = titleData.longDesc;
+
+    m_icon = { new C3D_Tex, &SMDH::ICON_SUBTEX };
+    C3D_TexInit(m_icon.tex, SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT, GPU_RGB565);
+    SMDH::copyImageData(titleData.texData, SMDH::ICON_WIDTH, SMDH::ICON_HEIGHT, reinterpret_cast<u16*>(m_icon.tex->data), SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT);
+
+    m_saveFiles.clear();
+    m_extdataFiles.clear();
+
+    std::string fileBuf = file->readStr(fileSize - offset, offset);
+    offset              = 0;
+
+    while(offset < fileBuf.size()) {
+        char containerCode = fileBuf[offset];
+        if((containerCode != 's' && containerCode != 'e')) {
+            break;
+        }
+
+        FileInfo info = { ._shouldUpdateHash = true };
+        char path[0x100];
+
+        char hash[33];
+        int numRead = 0;
+        if(sscanf(fileBuf.c_str() + offset, "%*c%llu%[^:]:%32[^\n]\n%n", &info.size, path, hash, &numRead) != 3) {
+            Logger::warn("Load Title Cache", "Invalid hashed entry");
             goto invalidCache;
         }
 
-        TitleData titleData;
-        memcpy(&titleData, fileBuf.c_str() + offset, sizeof(TitleData));
-
-        m_shortDescription = titleData.shortDesc;
-        m_longDescription  = titleData.longDesc;
-
-        m_icon = { new C3D_Tex, &SMDH::ICON_SUBTEX };
-        C3D_TexInit(m_icon.tex, SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT, GPU_RGB565);
-        SMDH::copyImageData(titleData.texData, SMDH::ICON_WIDTH, SMDH::ICON_HEIGHT, reinterpret_cast<u16*>(m_icon.tex->data), SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT);
-
-        offset += sizeof(TitleData);
-
-        m_saveFiles.clear();
-        m_extdataFiles.clear();
-
-        while(offset < fileSize) {
-            char containerCode = fileBuf[offset];
-            if((containerCode != 's' && containerCode != 'e')) {
-                break;
-            }
-
-            FileInfo info = { ._shouldUpdateHash = true };
-            char path[0x100];
-
-            char hash[33];
-            int numRead = 0;
-            if(sscanf(fileBuf.c_str() + offset, "%*c%llu%[^:]:%32[^\n]\n%n", &info.size, path, hash, &numRead) != 3) {
-                Logger::warn("Load Title Cache", "Invalid hashed entry");
-                goto invalidCache;
-            }
-
-            if(strlen(hash) == 32) {
-                info.hash = hash;
-            }
-
-            info.path = path;
-            offset += static_cast<u64>(numRead);
-
-            switch(containerCode) {
-            case 's': m_saveFiles.push_back(info); break;
-            case 'e': m_extdataFiles.push_back(info); break;
-            default:  break;
-            }
+        if(strlen(hash) == 32) {
+            info.hash = hash;
         }
 
-        break;
-    }
-    default: goto invalidCache;
+        info.path = path;
+        offset += static_cast<u64>(numRead);
+
+        switch(containerCode) {
+        case 's': m_saveFiles.push_back(info); break;
+        case 'e': m_extdataFiles.push_back(info); break;
+        default:  break;
+        }
     }
 
     return true;

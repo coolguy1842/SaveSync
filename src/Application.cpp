@@ -1,12 +1,11 @@
 #include <Application.hpp>
-#include <Util/Logger.hpp>
-#include <Util/Profiler.hpp>
+#include <Debug/ExceptionHandler.hpp>
+#include <Debug/Logger.hpp>
+#include <Debug/Profiler.hpp>
 #include <clay_renderer_C2D.hpp>
 
-void HandleClayErrors(Clay_ErrorData errorData) { Logger::error("Clay", "{}", errorData.errorText.chars); }
 void Application::updateURL() {
     std::string url = std::format("{}:{}", m_config->serverURL()->value(), m_config->serverPort()->value());
-
     if(m_client->processingQueueRequest()) {
         m_pendingURL = url;
         return;
@@ -16,7 +15,7 @@ void Application::updateURL() {
     m_pendingURL.clear();
 }
 
-void Application::tryUpdateClientURL(size_t, bool processing) {
+void Application::tryUpdateClientURL(bool processing) {
     if(m_pendingURL.empty() || processing) {
         return;
     }
@@ -25,28 +24,14 @@ void Application::tryUpdateClientURL(size_t, bool processing) {
     m_pendingURL.clear();
 }
 
-void Application::initClay() {
-    Clay_SetMaxElementCount(1024);
-
-    size_t minMemorySize = Clay_MinMemorySize();
-    m_clayTopMemory      = malloc(minMemorySize);
-    m_clayBottomMemory   = malloc(minMemorySize);
-
-    m_rendererData = { .fonts = { C2D_FontLoadSystem(CFG_REGION_USA) } };
-
-    m_topContext = Clay_Initialize(Clay_CreateArenaWithCapacityAndMemory(minMemorySize, m_clayTopMemory), { TOP_SCREEN_WIDTH, TOP_SCREEN_HEIGHT }, { HandleClayErrors });
-    Clay_SetMeasureTextFunction(C2D_Clay_MeasureText, &m_rendererData.fonts);
-
-    m_bottomContext = Clay_Initialize(Clay_CreateArenaWithCapacityAndMemory(minMemorySize, m_clayBottomMemory), { BOTTOM_SCREEN_WIDTH, BOTTOM_SCREEN_HEIGHT }, { HandleClayErrors });
-    Clay_SetMeasureTextFunction(C2D_Clay_MeasureText, &m_rendererData.fonts);
-}
-
 bool filesEqual(std::vector<FileInfo> a, std::vector<FileInfo> b) { return std::equal(a.begin(), a.end(), b.begin(), b.end()); }
-void checkTitleOutOfDate(std::shared_ptr<Title> title, const bool& hasCache, const std::unordered_map<u64, TitleInfo>& cache) {
-    if(!hasCache) {
+void Application::checkTitleOutOfDate(std::shared_ptr<Title> title, Container) {
+    if(!m_client->cachedTitleInfoLoaded()) {
         title->setOutOfDate(0);
         return;
     }
+
+    const std::unordered_map<u64, TitleInfo> cache = m_client->cachedTitleInfo();
 
     auto it = cache.find(title->id());
     if(it == cache.end()) {
@@ -68,50 +53,129 @@ void checkTitleOutOfDate(std::shared_ptr<Title> title, const bool& hasCache, con
     title->setOutOfDate(outOfDate);
 }
 
-void checkTitlesOutOfDate(std::vector<std::shared_ptr<Title>> titles, const bool& hasCache, const std::unordered_map<u64, TitleInfo>& cache) {
-    for(auto title : titles) {
-        checkTitleOutOfDate(title, hasCache, cache);
+void Application::checkTitlesOutOfDate() {
+    for(auto title : m_loader->titles()) {
+        checkTitleOutOfDate(title);
+    }
+}
+
+void HandleClayErrors(Clay_ErrorData errorData) { Logger::error("Clay", "{}", errorData.errorText.chars); }
+void Application::initClay() {
+    Logger::info("App Init Clay", "Creating Clay Instances");
+    size_t minMemorySize = Clay_MinMemorySize();
+
+    m_clayTopMemory    = linearAlloc(minMemorySize);
+    m_clayBottomMemory = linearAlloc(minMemorySize);
+
+    m_rendererData = { .fonts = { C2D_FontLoadSystem(CFG_REGION_USA) } };
+
+    if(m_clayTopMemory == NULL) {
+        Logger::critical("App Init Clay", "Failed to create top memory");
+    }
+    else {
+        m_topContext = Clay_Initialize(Clay_CreateArenaWithCapacityAndMemory(minMemorySize, m_clayTopMemory), { TOP_SCREEN_WIDTH, TOP_SCREEN_HEIGHT }, { HandleClayErrors });
+        Clay_SetMeasureTextFunction(C2D_Clay_MeasureText, &m_rendererData.fonts);
+    }
+
+    if(m_clayBottomMemory == NULL) {
+        Logger::critical("App Init Clay", "Failed to create bottom memory");
+    }
+    else {
+        m_bottomContext = Clay_Initialize(Clay_CreateArenaWithCapacityAndMemory(minMemorySize, m_clayBottomMemory), { BOTTOM_SCREEN_WIDTH, BOTTOM_SCREEN_HEIGHT }, { HandleClayErrors });
+        Clay_SetMeasureTextFunction(C2D_Clay_MeasureText, &m_rendererData.fonts);
+    }
+}
+
+void Application::handleException(ERRF_ExceptionInfo* info, CpuRegisters* regs) {
+    bool wasHandling    = m_handlingException;
+    m_handlingException = true;
+
+    std::string infoStr = ExceptionHandlerFormatInfo(info, regs);
+    if(!wasHandling) {
+        cleanup();
+    }
+
+    gfxInitDefault();
+    consoleInit(GFX_TOP, NULL);
+
+    Logger::log("{}", infoStr);
+    infoStr.clear();
+
+    printf("\nPress Start to exit...\n");
+    while(aptMainLoop()) {
+        gspWaitForVBlank();
+        gfxFlushBuffers();
+        gfxSwapBuffers();
+
+        hidScanInput();
+
+        u32 kDown = hidKeysDown();
+        u32 kHeld = hidKeysHeld();
+        if(!(kDown & KEY_L || kHeld & KEY_L) && kDown & KEY_START) {
+            break;
+        }
+    }
+
+    gfxExit();
+    exit(0);
+}
+
+void Application::onException(ERRF_ExceptionInfo* info, CpuRegisters* regs) {
+    ExceptionData* data  = reinterpret_cast<ExceptionData*>(reinterpret_cast<u8*>(info) - offsetof(ExceptionData, data));
+    Application* context = data->context;
+
+    if(context != NULL) {
+        Logger::info("Application On Exception", "Calling Handle Exception");
+        context->handleException(info, regs);
+    }
+    else {
+        Logger::info("Application On Exception", "Calling Default Handler");
+        DefaultExceptionHandler(info, regs);
     }
 }
 
 Application::Application(bool consoleEnabled, gfxScreen_t consoleScreen)
     : m_shouldExit(false)
     , m_consoleEnabled(false)
-    , m_consoleInitialized(false) {
+    , m_consoleScreen(DefaultScreen)
+#if defined(DEBUG) && !defined(REDIRECT_CONSOLE)
+    , m_dummyTopFramebuffer(TOP_SCREEN_WIDTH * TOP_SCREEN_HEIGHT)
+    , m_dummyBottomFramebuffer(BOTTOM_SCREEN_WIDTH * BOTTOM_SCREEN_HEIGHT)
+#endif
+{
     PROFILE_SCOPE("App Init");
-    aptInit();
 
-#if !defined(DEBUG)
     (void)consoleEnabled;
     (void)consoleScreen;
-#endif
-
-#if defined(DEBUG) && defined(REDIRECT_CONSOLE)
-    // copy stdout & stderr handle to grab back after closing 3dslink socket
-    stdoutDup = dup(STDOUT_FILENO);
-    stderrDup = dup(STDERR_FILENO);
-
-    link3dsStdio();
-#endif
+    if((m_exceptionHandlerStack = allocateHandlerStack(0x3000)) != nullptr) {
+        m_exceptionData.context = this;
+        threadOnException(Application::onException, m_exceptionHandlerStack, &m_exceptionData.data);
+    }
+    else {
+        Logger::warn("App Init", "Failed to allocate stack for exception handler");
+    }
 
     C2D_Clay_Init();
 
-    // init the static s_glyphSheets in C2Di_TextEnsureLoad, as it will show in the leak list
-    C2D_TextBufNew(0);
-    clearLeaks();
+#if defined(DEBUG)
+#if defined(REDIRECT_CONSOLE)
+    m_stdoutDup = dup(STDOUT_FILENO);
+    m_stderrDup = dup(STDERR_FILENO);
+
+    link3dsStdio();
+#else
+    if(consoleEnabled) {
+        setConsole(consoleEnabled, consoleScreen);
+    }
+    else {
+        setConsole(true, DefaultScreen);
+        setConsole(false, DefaultScreen);
+    }
+#endif
+#endif
 
     m_top    = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
     m_bottom = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
-
-#if defined(DEBUG) && !defined(REDIRECT_CONSOLE)
-    if(!consoleEnabled) {
-        setConsole(true, consoleScreen);
-        setConsole(false, consoleScreen);
-    }
-    else {
-        setConsole(consoleEnabled, consoleScreen);
-    }
-#endif
 
     initClay();
 
@@ -120,113 +184,36 @@ Application::Application(bool consoleEnabled, gfxScreen_t consoleScreen)
     m_client = std::make_shared<Client>();
 
     updateURL();
-    m_config->serverURL()->changedEmptySignal()->connect(this, &Application::updateURL);
-    m_config->serverPort()->changedEmptySignal()->connect(this, &Application::updateURL);
 
-    m_client->networkQueueChangedSignal()->connect(this, &Application::tryUpdateClientURL);
+    // add all objects to scope that are used to ensure lifetimes
+    m_connections += {
+        m_config->serverURL()->changedEmptySignal.connect([this, config = m_config, client = m_client]() noexcept { updateURL(); }),
+        m_config->serverPort()->changedEmptySignal.connect([this, config = m_config, client = m_client]() noexcept { updateURL(); }),
 
-    m_client->titleCacheChangedSignal()->connect([this]() { checkTitlesOutOfDate(m_loader->titles(), m_client->cachedTitleInfoLoaded(), m_client->cachedTitleInfo()); });
-    m_loader->titlesFinishedLoadingSignal()->connect([this]() { checkTitlesOutOfDate(m_loader->titles(), m_client->cachedTitleInfoLoaded(), m_client->cachedTitleInfo()); });
-    m_loader->titleHashedSignal()->connect([this](std::shared_ptr<Title> title, Container) { checkTitleOutOfDate(title, m_client->cachedTitleInfoLoaded(), m_client->cachedTitleInfo()); });
+        m_client->networkQueueChangedSignal.connect([this, client = m_client](const size_t&, const bool& processing) noexcept { tryUpdateClientURL(processing); }),
+        m_client->titleCacheChangedSignal.connect([this, loader = m_loader, client = m_client]() noexcept { checkTitlesOutOfDate(); }),
+
+        m_loader->titlesFinishedLoadingSignal.connect([this, loader = m_loader, client = m_client]() noexcept { checkTitlesOutOfDate(); }),
+        m_loader->titleHashedSignal.connect([this, loader = m_loader, client = m_client](const std::shared_ptr<Title>& title, const Container&) noexcept { checkTitleOutOfDate(title); })
+    };
 
     m_client->startQueueWorker();
-    m_mainScreen = std::make_unique<MainScreen>(m_config, m_loader, m_client);
-    m_prevTime   = osGetTime();
-}
 
-#if defined(DEBUG) && !defined(REDIRECT_CONSOLE)
-void resetScreen(gfxScreen_t screen) {
-    gfxSetScreenFormat(screen, GSP_BGR8_OES);
-    gfxSetDoubleBuffering(screen, true);
-}
-
-void resetConsole(PrintConsole& console, u16* dummy, gfxScreen_t prevScreen) {
-    console.frameBuffer = dummy;
-    resetScreen(prevScreen);
-}
-#endif
-
-Application::~Application() {
-    m_mainScreen.reset();
-    m_loader.reset();
-    m_client.reset();
-    m_config.reset();
-
-    if(m_clayTopMemory != nullptr) {
-        free(m_clayTopMemory);
+    if(m_config != nullptr && m_loader != nullptr && m_client != nullptr) {
+        m_mainScreen = std::make_unique<MainScreen>(m_config, m_loader, m_client);
     }
 
-    if(m_clayBottomMemory != nullptr) {
-        free(m_clayBottomMemory);
-    }
+    m_prevTime = osGetTime();
+}
 
-    for(auto& font : m_rendererData.fonts) {
-        C2D_FontFree(font);
-    }
-
-    m_rendererData.fonts.clear();
-
+void Application::cleanup() {
 #if defined(DEBUG)
 #if !defined(REDIRECT_CONSOLE)
-    if(m_consoleInitialized && !(m_consoleEnabled && m_consoleScreen == GFX_TOP)) {
-        if(m_consoleEnabled && m_consoleScreen != GFX_TOP) {
-            resetScreen(m_consoleScreen);
-        }
-
+    if(m_consoleInitialized && (!m_consoleEnabled || m_consoleScreen != DefaultScreen)) {
         // swap to top framebuffer to skip any data read errors
-        consoleInit(GFX_TOP, NULL);
+        setConsole(true, DefaultScreen);
     }
-#endif
-    leak_list_node* prevBegin = cloneCurrentList();
-#endif
-
-    C2D_Clay_Exit();
-
-#if defined(DEBUG)
-    leak_list_node* begin = leakListBegin();
-    leak_list_node* node  = begin;
-
-    leak_list_node* prevNode = NULL;
-    while(node != NULL && prevBegin != NULL) {
-        // if memory node is new then remove from the list
-        leak_list_node* next  = node->next;
-        leak_list_node* node2 = prevBegin;
-
-        while(node2 != NULL) {
-            if(node->data == node2->data && node->dataSize == node2->dataSize && node->allocatedWith == node2->allocatedWith) {
-                goto skip;
-            }
-
-            node2 = node2->next;
-        }
-
-        if(prevNode != NULL) {
-            prevNode->next = next;
-        }
-        else {
-            if(next == NULL) {
-                clearLeaks();
-            }
-
-            setLeakList(next);
-        }
-
-        node->next = prevBegin;
-        prevBegin  = node;
-
-        node = next;
-        continue;
-    skip:
-        prevNode = node;
-        node     = node->next;
-    }
-
-    freeClonedList(prevBegin);
-#endif
-
-    aptExit();
-
-#if defined(DEBUG) && defined(REDIRECT_CONSOLE)
+#else
     if(dup2(stdoutDup, STDOUT_FILENO) >= 0) {
         close(stdoutDup);
     }
@@ -235,6 +222,38 @@ Application::~Application() {
         close(stdoutDup);
     }
 #endif
+#endif
+
+    C2D_Clay_Exit();
+    if(m_clayTopMemory) linearFree(m_clayTopMemory);
+    if(m_clayBottomMemory) linearFree(m_clayBottomMemory);
+
+    for(auto& font : m_rendererData.fonts) {
+        C2D_FontFree(font);
+    }
+
+    m_rendererData.fonts.clear();
+}
+
+Application::~Application() {
+    if(m_exceptionHandlerStack != nullptr) {
+        threadOnException(DefaultExceptionHandler, m_exceptionHandlerStack, WRITE_DATA_TO_HANDLER_STACK);
+    }
+
+    m_mainScreen.reset();
+    m_client.reset();
+    m_loader.reset();
+    m_config.reset();
+
+    // dont wait for client to disconnect until end
+    m_connections.disconnect();
+
+    cleanup();
+
+    if(m_exceptionHandlerStack != nullptr) {
+        threadOnException(NULL, NULL, NULL);
+        free(m_exceptionHandlerStack);
+    }
 }
 
 void Application::update() {
@@ -243,12 +262,12 @@ void Application::update() {
 
     u32 kDown = hidKeysDown();
     u32 kHeld = hidKeysHeld();
-    if(aptIsHomeAllowed() && kDown & KEY_START && !(kDown & KEY_L || kHeld & KEY_L)) {
+    if(aptIsHomeAllowed() && (kDown & KEY_START || kHeld & KEY_START) && !(kDown & KEY_L || kHeld & KEY_L)) {
         setShouldExit();
         return;
     }
 
-    if(!m_consoleEnabled || m_consoleScreen != GFX_BOTTOM) {
+    if(m_clayBottomMemory != nullptr && (!m_consoleEnabled || m_consoleScreen != GFX_BOTTOM)) {
         static u8 releaseTouch = 0;
         if(kDown & KEY_TOUCH || kHeld & KEY_TOUCH) {
             touchPosition touch;
@@ -278,6 +297,10 @@ void Application::update() {
         m_prevTime = osGetTime();
     }
 
+    if(m_mainScreen != nullptr) {
+        m_mainScreen->update();
+    }
+
 #if defined(DEBUG) && !defined(REDIRECT_CONSOLE)
     if((kDown & KEY_L || kHeld & KEY_L) && kDown & KEY_X) {
         setConsole(!m_consoleEnabled, m_consoleScreen);
@@ -305,52 +328,39 @@ void Application::update() {
         return;
     }
 #endif
-
-    m_mainScreen->update();
 }
 
 void Application::render() {
     PROFILE_SCOPE("App Render");
 
-    Clay_RenderCommandArray topCommands, bottomCommands;
-    {
-        PROFILE_SCOPE("App Layout Top");
+    C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
 
+    if(m_clayTopMemory != nullptr && (!m_consoleEnabled || m_consoleScreen != GFX_TOP)) {
         Clay_SetCurrentContext(m_topContext);
         Clay_BeginLayout();
 
-        m_mainScreen->renderTop();
-        topCommands = Clay_EndLayout();
-    }
-
-    {
-        PROFILE_SCOPE("App Layout Bottom");
-
-        Clay_SetCurrentContext(m_bottomContext);
-        Clay_BeginLayout();
-
-        m_mainScreen->renderBottom();
-        bottomCommands = Clay_EndLayout();
-    }
-
-    C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-
-    if(!m_consoleEnabled || m_consoleScreen != GFX_TOP) {
-        PROFILE_SCOPE("App Render Top");
+        if(m_mainScreen != nullptr) {
+            m_mainScreen->renderTop();
+        }
 
         C2D_TargetClear(m_top, C2D_Color32(0x00, 0x00, 0x00, 0xFF));
         C2D_SceneBegin(m_top);
 
-        C2D_Clay_RenderClayCommands(&m_rendererData, topCommands, GFX_TOP);
+        C2D_Clay_RenderClayCommands(&m_rendererData, Clay_EndLayout(), GFX_TOP);
     }
 
-    if(!m_consoleEnabled || m_consoleScreen != GFX_BOTTOM) {
-        PROFILE_SCOPE("App Render Bottom");
+    if(m_clayBottomMemory != nullptr && (!m_consoleEnabled || m_consoleScreen != GFX_BOTTOM)) {
+        Clay_SetCurrentContext(m_bottomContext);
+        Clay_BeginLayout();
+
+        if(m_mainScreen != nullptr) {
+            m_mainScreen->renderBottom();
+        }
 
         C2D_TargetClear(m_bottom, C2D_Color32(0x00, 0x00, 0x00, 0xFF));
         C2D_SceneBegin(m_bottom);
 
-        C2D_Clay_RenderClayCommands(&m_rendererData, bottomCommands, GFX_BOTTOM);
+        C2D_Clay_RenderClayCommands(&m_rendererData, Clay_EndLayout(), GFX_BOTTOM);
     }
 
     C3D_FrameEnd(0);
@@ -374,8 +384,18 @@ bool Application::loop() {
 bool Application::shouldExit() const { return m_shouldExit; }
 void Application::setShouldExit(bool shouldExit) { m_shouldExit = shouldExit; }
 
-void Application::setConsole(bool enabled, gfxScreen_t screen) {
 #if defined(DEBUG) && !defined(REDIRECT_CONSOLE)
+void resetScreen(gfxScreen_t screen) {
+    gfxSetScreenFormat(screen, GSP_BGR8_OES);
+    gfxSetDoubleBuffering(screen, true);
+}
+
+void resetConsole(PrintConsole& console, u16* dummy, gfxScreen_t prevScreen) {
+    console.frameBuffer = dummy;
+    resetScreen(prevScreen);
+}
+
+void Application::setConsole(bool enabled, gfxScreen_t screen) {
     if(m_consoleEnabled == enabled && (!enabled || m_consoleScreen == screen)) {
         m_consoleScreen = screen;
 
@@ -386,9 +406,12 @@ void Application::setConsole(bool enabled, gfxScreen_t screen) {
     m_consoleEnabled       = enabled;
     m_consoleScreen        = screen;
 
-    if(m_consoleEnabled && !m_consoleInitialized) {
-        consoleInit(m_consoleScreen, &m_console);
-        m_consoleInitialized = true;
+    (void)prevScreen;
+    if(!m_consoleInitialized) {
+        if(m_consoleEnabled) {
+            consoleInit(m_consoleScreen, &m_console);
+            m_consoleInitialized = true;
+        }
     }
     else if(m_consoleEnabled) {
         resetScreen(prevScreen);
@@ -418,37 +441,25 @@ void Application::setConsole(bool enabled, gfxScreen_t screen) {
         u16 width, height;
         m_console.frameBuffer = reinterpret_cast<u16*>(gfxGetFramebuffer(m_consoleScreen, GFX_LEFT, &width, &height));
 
-        u16* dummyFramebuffer = nullptr;
+        std::vector<u16>* framebuffer;
         switch(m_consoleScreen) {
-        case GFX_TOP:    dummyFramebuffer = m_dummyTopFramebuffer.data(); break;
-        case GFX_BOTTOM: dummyFramebuffer = m_dummyBottomFramebuffer.data(); break;
+        case GFX_TOP:    framebuffer = &m_dummyTopFramebuffer; break;
+        case GFX_BOTTOM: framebuffer = &m_dummyBottomFramebuffer; break;
         default:         return;
         }
 
-        memcpy(m_console.frameBuffer, dummyFramebuffer, width * height * sizeof(u16));
+        memcpy(m_console.frameBuffer, framebuffer->data(), width * height * sizeof(u16));
     }
     else {
-        size_t framebufferSize = 0;
-        u16* framebuffer       = nullptr;
+        std::vector<u16>* framebuffer;
         switch(m_consoleScreen) {
-        case GFX_TOP:
-            framebufferSize = m_dummyTopFramebuffer.size();
-            framebuffer     = m_dummyTopFramebuffer.data();
-
-            break;
-        case GFX_BOTTOM:
-            framebufferSize = m_dummyBottomFramebuffer.size();
-            framebuffer     = m_dummyBottomFramebuffer.data();
-
-            break;
-        default: return;
+        case GFX_TOP:    framebuffer = &m_dummyTopFramebuffer; break;
+        case GFX_BOTTOM: framebuffer = &m_dummyBottomFramebuffer; break;
+        default:         return;
         }
 
-        memcpy(framebuffer, m_console.frameBuffer, framebufferSize * sizeof(u16));
-        resetConsole(m_console, framebuffer, m_consoleScreen);
+        memcpy(framebuffer->data(), m_console.frameBuffer, framebuffer->size() * sizeof(u16));
+        resetConsole(m_console, framebuffer->data(), m_consoleScreen);
     }
-#else
-    (void)enabled;
-    (void)screen;
-#endif
 }
+#endif

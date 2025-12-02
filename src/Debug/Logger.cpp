@@ -1,7 +1,7 @@
+#include <Debug/Logger.hpp>
+#include <Debug/Profiler.hpp>
 #include <FS/Archive.hpp>
 #include <FS/Directory.hpp>
-#include <Util/Logger.hpp>
-#include <Util/Profiler.hpp>
 #include <Util/StringUtil.hpp>
 #include <string.h>
 
@@ -35,13 +35,23 @@ struct RenameEntry {
 
 bool Logger::s_dirInitialized = false;
 bool Logger::s_dirExists      = false;
+Mutex Logger::s_fileMutex     = Mutex();
+
 std::shared_ptr<File> Logger::openLogFile() {
     const u8 maxLogs = 5;
 
+    std::shared_ptr<Archive> sdmc = Archive::sdmc();
+    if(sdmc == nullptr || !sdmc->valid()) {
+        s_dirExists      = false;
+        s_dirInitialized = true;
+
+        Logger::error("Logger File", "Failed to open sdmc");
+        return nullptr;
+    }
+
     if(!s_dirInitialized) {
-        s_dirInitialized              = true;
-        std::shared_ptr<Archive> sdmc = Archive::open(ARCHIVE_SDMC, VarPath());
-        if(sdmc == nullptr || !sdmc->valid() || !sdmc->mkdir(u"/3ds/SaveSync/logs", 0, true)) {
+        s_dirInitialized = true;
+        if(!sdmc->mkdir(u"/3ds/SaveSync/logs", 0, true)) {
             Logger::error("Logger File", "Failed to create log folder");
             s_dirExists = false;
 
@@ -108,12 +118,17 @@ std::shared_ptr<File> Logger::openLogFile() {
         return nullptr;
     }
 
-    return File::openDirect(ARCHIVE_SDMC, VarPath(), "/3ds/SaveSync/logs/log.txt", FS_OPEN_CREATE | FS_OPEN_READ | FS_OPEN_WRITE, 0);
+    return sdmc->openFile("/3ds/SaveSync/logs/log.txt", FS_OPEN_CREATE | FS_OPEN_READ | FS_OPEN_WRITE, 0);
 }
 
 void Logger::fileLogMessage(const std::string& message) {
+    auto lock = s_fileMutex.lock();
+    if(message.empty()) {
+        return;
+    }
+
     std::shared_ptr<File> file = openLogFile();
-    if(!message.empty() && file != nullptr && file->valid()) {
+    if(file != nullptr && file->valid()) {
         u32 size = file->size();
         if(size == UINT32_MAX || !file->setSize(size + message.size())) {
             return;
@@ -152,47 +167,5 @@ void Logger::logProfiler() {
     }
 
     out += std::format("{:-^{}}\n", "", maxSize + ticksWidth + 3);
-    log("{}", out);
-}
-
-void Logger::logLeaks() {
-    leak_list_node* begin = cloneCurrentList();
-    logLeaks(begin);
-    freeClonedList(begin);
-}
-
-void Logger::logLeaks(leak_list_node* beginNode) {
-    if(beginNode == NULL) {
-        log("No Memory in Use");
-        return;
-    }
-
-    std::string out;
-    out += "---------- Leak Summary ---------\n";
-    out += "|  type  |   address   |  size  |\n";
-
-    size_t leaked        = 0;
-    leak_list_node* node = beginNode;
-    while(node != NULL) {
-        leaked += node->dataSize;
-
-        out += "|";
-        switch(node->allocatedWith) {
-        case MALLOC:   out += " malloc "; break;
-        case CALLOC:   out += " calloc "; break;
-        case STRDUP:   out += " strdup "; break;
-        case STRNDUP:  out += "strndup "; break;
-        case REALLOC:  out += "realloc "; break;
-        case MEMALIGN: out += "memalign"; break;
-        default:       out += "unknown "; break;
-        }
-
-        out += std::format("|{:^13p}|{:08}|\n", node->data, node->dataSize);
-        node = node->next;
-    }
-
-    out += "---------------------------------\n";
-    out += std::format("      Total Leaked | {}\n", leaked);
-
     log("{}", out);
 }

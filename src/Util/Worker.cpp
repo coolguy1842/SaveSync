@@ -1,5 +1,7 @@
+#include <Debug/ExceptionHandler.hpp>
 #include <Util/Worker.hpp>
 #include <algorithm>
+#include <malloc.h>
 #include <stdio.h>
 
 Worker::~Worker() { waitForExit(); }
@@ -17,8 +19,7 @@ Worker::Worker(std::function<void(Worker*)> workerFunction, int priorityOffset, 
 }
 
 void Worker::setWorkerFunc(std::function<void(Worker*)> func) { m_workerFunction = func; }
-
-bool Worker::running() const { return m_threadStarted && threadGetExitCode(m_thread) == 0; }
+bool Worker::running() const { return m_thread != nullptr && m_threadStarted && threadGetExitCode(m_thread) != 1; }
 bool Worker::waitingForExit() const { return m_waitingForExit; }
 
 void Worker::start() {
@@ -27,15 +28,30 @@ void Worker::start() {
     }
 
     waitForExit();
+    auto lock = m_mutex.lock();
 
     m_threadStarted = true;
-    m_thread        = threadCreate(&Worker::onThreadStart, this, m_stackSize, m_priority, m_processor, false);
+    m_thread        = threadCreate(&Worker::onThreadStart, this, m_stackSize + 0x1000, m_priority, m_processor, false);
+}
+
+void Worker::signalShouldExit() {
+    if(running()) {
+        m_waitingForExit = true;
+    }
 }
 
 void Worker::waitForExit() {
+    if(m_joining) {
+        return;
+    }
+
     if(m_thread != nullptr) {
+        m_joining = true;
+        auto lock = ScopedLock(m_mutex, true);
+
         if(running()) {
             m_waitingForExit = true;
+            lock.lock();
 
             threadJoin(m_thread, U64_MAX);
         }
@@ -47,12 +63,27 @@ void Worker::waitForExit() {
 
     m_threadStarted  = false;
     m_waitingForExit = false;
+    m_joining        = false;
+}
+
+extern const size_t __tdata_align;
+extern const u8 __tdata_lma[];
+extern const u8 __tdata_lma_end[];
+extern u8 __tls_start[];
+extern u8 __tls_end[];
+
+static inline size_t alignTo(const size_t base, const size_t align) {
+    return (base + (align - 1)) & ~(align - 1);
 }
 
 void Worker::onThreadStart(void* data) {
     Worker* worker = reinterpret_cast<Worker*>(data);
+    if(worker == nullptr) {
+        return;
+    }
 
     if(worker->m_workerFunction != nullptr) {
+        auto lock = worker->m_mutex.lock();
         worker->m_workerFunction(worker);
     }
 

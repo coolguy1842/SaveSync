@@ -2,68 +2,34 @@
 #include <clay.h>
 
 #include <Application.hpp>
-#include <Util/LeakDetector.h>
-#include <Util/Logger.hpp>
-#include <Util/Profiler.hpp>
+#include <Debug/ExceptionHandler.hpp>
+#include <Debug/LeakDetector.h>
+#include <Debug/LeakViewerApplication.hpp>
+#include <Debug/Logger.hpp>
+#include <Debug/SymbolUtils.h>
+#include <fstream>
+#include <malloc.h>
 #include <memory>
 #include <timestamp.h>
 
 int main() {
-    std::string dirtyStr;
-    if(strlen(git_dirty_str) != 0) {
-        dirtyStr = std::format("| {} ", git_dirty_str);
-    }
-
-    Logger::log("SaveSync v{}.{}.{} | {}({}) {}| Built {}", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, git_branch_str, git_short_hash_str, dirtyStr, build_time_str);
-
+    // prevent from showing in leak list
     {
-        std::unique_ptr<Application> application = std::make_unique<Application>();
-        while(application->loop()) {
+        std::string dirtyStr = strlen(git_dirty_str) != 0 ? std::format("| {} ", git_dirty_str) : "";
+        Logger::log("SaveSync v{}.{}.{} | {}({}) {}| Built {}", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, git_branch_str, git_short_hash_str, dirtyStr, build_time_str);
+
+        Application app;
+        while(app.loop()) {
             // printf("\x1b[2;1HCPU:     %6.2f%%\x1b[K", C3D_GetProcessingTime() * 6.0f);
             // printf("\x1b[3;1HGPU:     %6.2f%%\x1b[K", C3D_GetDrawingTime() * 6.0f);
             // printf("\x1b[4;1HCmdBuf:  %6.2f%%\x1b[K", C3D_GetCmdBufUsage() * 100.0f);
         }
     }
 
-    if(aptShouldClose() || !isDetectingLeaks()) {
-        clearLeaks();
-        return 0;
+    if(!aptShouldClose() && isDetectingLeaks()) {
+        LeakViewerApplication app;
+        while(app.loop()) {}
     }
-
-    // prevent profiler from showing up on leak list
-    Profiler::reset();
-    leak_list_node* begin = cloneCurrentList();
-
-    gfxInitDefault();
-    gfxSetDoubleBuffering(GFX_BOTTOM, false);
-
-    gfxSwapBuffers();
-    gspWaitForVBlank();
-
-    u16 width, height;
-    u8* framebuffer = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, &width, &height);
-    // clear bottom screen
-    memset(framebuffer, 0, width * height * gspGetBytesPerPixel(gfxGetScreenFormat(GFX_BOTTOM)));
-
-    PrintConsole console;
-    consoleInit(GFX_TOP, &console);
-
-    Logger::logLeaks(begin);
-    freeClonedList(begin);
-
-    while(aptMainLoop()) {
-        gfxSwapBuffers();
-        gspWaitForVBlank();
-
-        hidScanInput();
-        u32 kDown = hidKeysDown();
-
-        if(kDown & KEY_START) {
-            break;
-        }
-    }
-
-    gfxExit();
 
     return 0;
 }

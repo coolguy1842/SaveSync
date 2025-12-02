@@ -4,15 +4,16 @@
 #include <3ds.h>
 
 #include <Title.hpp>
+#include <Util/Mutex.hpp>
 #include <array>
 #include <atomic>
+#include <list>
 #include <memory>
-#include <mutex>
+#include <rocket.hpp>
 #include <stack>
 #include <vector>
 
 #include <Util/Worker.hpp>
-#include <sigs.h>
 
 class TitleLoader {
 public:
@@ -30,9 +31,9 @@ public:
     std::vector<std::shared_ptr<Title>> titles();
 
 public:
-    [[nodiscard]] auto titlesLoadedChangedSignal() { return m_titlesLoadedChangedSignal.interface(); }
-    [[nodiscard]] auto titlesFinishedLoadingSignal() { return m_titlesFinishedLoadingSignal.interface(); }
-    [[nodiscard]] auto titleHashedSignal() { return m_titleHashedSignal.interface(); }
+    rocket::thread_safe_signal<void(const size_t&)> titlesLoadedChangedSignal;
+    rocket::thread_safe_signal<void()> titlesFinishedLoadingSignal;
+    rocket::thread_safe_signal<void(const std::shared_ptr<Title>&, const Container&)> titleHashedSignal;
 
 private:
     void loadSDTitles(u32 numTitles = 0);
@@ -41,8 +42,7 @@ private:
     void loadWorkerMain();
 
 private:
-    std::mutex m_titlesMutex;
-
+    Mutex m_titlesMutex;
     std::vector<std::shared_ptr<Title>> m_titles;
 
     struct TitleEntry {
@@ -51,10 +51,6 @@ private:
         FS_CardType cardType;
     };
 
-    static constexpr size_t NumChunkWorkers = 3;
-    std::array<Worker, NumChunkWorkers> m_chunkWorkers;
-    std::array<std::stack<TitleEntry>, NumChunkWorkers> m_chunkWorkerTitles;
-
     bool m_SDTitlesLoaded;
 
     size_t m_totalTitles               = 0;
@@ -62,11 +58,6 @@ private:
 
     std::unique_ptr<Worker> m_loaderWorker;
     std::unique_ptr<Worker> m_hashWorker;
-
-private:
-    sigs::Signal<void(const size_t&)> m_titlesLoadedChangedSignal;
-    sigs::Signal<void()> m_titlesFinishedLoadingSignal;
-    sigs::Signal<void(const std::shared_ptr<Title>&, const Container&)> m_titleHashedSignal;
 };
 
 #endif

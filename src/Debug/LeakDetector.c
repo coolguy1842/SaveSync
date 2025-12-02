@@ -1,8 +1,14 @@
-#include <Util/LeakDetector.h>
+#include <Debug/LeakDetector.h>
+#include <Debug/SymbolUtils.h>
+#include <citro2d.h>
+#include <ctype.h>
+#include <math.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unwind.h>
 
 #ifdef DEBUG
 // if not defined then disable any leak checking
@@ -20,11 +26,12 @@ void __real_free(void* ptr);
 int __real_main();
 
 #ifdef ENABLE_LEAK_CHECK
+
 static bool initialized          = false;
 static leak_list_node* beginNode = NULL;
 static pthread_mutex_t mutex;
 
-void add_ptr(u8 allocatedWith, void* ptr, size_t size) {
+void add_ptr(u8 allocatedWith, void* ptr, size_t size, void* pc) {
     if(!initialized || ptr == NULL || size == 0) {
         return;
     }
@@ -36,9 +43,66 @@ void add_ptr(u8 allocatedWith, void* ptr, size_t size) {
 
     node->data          = ptr;
     node->dataSize      = size;
+    node->tracesSize    = 0;
     node->allocatedWith = allocatedWith;
 
     pthread_mutex_lock(&mutex);
+    if(symbolMapSize() != 0) {
+        stack_trace traces = getStackTrace(LEAK_LIST_NODE_MAX_TRACES, 1);
+        for(int i = 0; i < traces.size; i++) {
+            uintptr_t addr                = traces.addresses[i];
+            const symbol_map_entry* entry = getSymbol(addr);
+
+            leak_list_trace* trace = &node->traces[node->tracesSize++];
+            if(entry == NULL) {
+                trace->symbol  = "unknown";
+                trace->address = addr;
+                trace->offset  = 0;
+            }
+            else {
+                trace->symbol  = entry->name;
+                trace->address = entry->address;
+                trace->offset  = addr - entry->address;
+            }
+        }
+
+        if(traces.size <= 0) {
+            const char* ignored[] = {
+                "MemPool::Deallocate",
+                NULL
+            };
+
+            uintptr_t addr                = (uintptr_t)pc;
+            const symbol_map_entry* entry = getSymbol(addr);
+
+            // ignore these static buffers
+            if(entry != NULL) {
+                for(const char** str = ignored; *str; str++) {
+                    if(strncmp(*str, entry->name, strlen(*str)) == 0) {
+                        goto skipTrace;
+                    }
+                }
+            }
+
+            leak_list_trace* trace = &node->traces[node->tracesSize++];
+
+            if(entry == NULL) {
+                trace->symbol  = "unknown";
+                trace->address = addr;
+                trace->offset  = 0;
+            }
+            else {
+
+                trace->symbol  = entry->name;
+                trace->address = entry->address;
+                trace->offset  = addr - entry->address;
+            }
+        }
+
+    skipTrace:
+        freeStackTrace(traces);
+    }
+
     node->next = beginNode;
     beginNode  = node;
     pthread_mutex_unlock(&mutex);
@@ -70,7 +134,6 @@ void remove_ptr(void* ptr) {
         }
 
         __real_free(node);
-
         pthread_mutex_unlock(&mutex);
         return;
     }
@@ -84,7 +147,7 @@ void* __wrap_malloc(size_t size) {
         return NULL;
     }
 
-    add_ptr(MALLOC, ptr, size);
+    add_ptr(MALLOC, ptr, size, __builtin_return_address(0));
     return ptr;
 }
 
@@ -94,7 +157,7 @@ void* __wrap_calloc(size_t num, size_t size) {
         return NULL;
     }
 
-    add_ptr(CALLOC, ptr, num * size);
+    add_ptr(CALLOC, ptr, num * size, __builtin_return_address(0));
     return ptr;
 }
 
@@ -106,7 +169,7 @@ void* __wrap_realloc(void* ptr, size_t size) {
         return NULL;
     }
 
-    add_ptr(REALLOC, newPtr, size);
+    add_ptr(REALLOC, newPtr, size, __builtin_return_address(0));
     return newPtr;
 }
 
@@ -116,7 +179,7 @@ void* __wrap_memalign(size_t alignment, size_t size) {
         return NULL;
     }
 
-    add_ptr(MEMALIGN, ptr, size);
+    add_ptr(MEMALIGN, ptr, size, __builtin_return_address(0));
     return ptr;
 }
 
@@ -126,7 +189,7 @@ char* __wrap_strdup(const char* str) {
         return NULL;
     }
 
-    add_ptr(STRDUP, ptr, strlen(str) + 1);
+    add_ptr(STRDUP, ptr, strlen(str) + 1, __builtin_return_address(0));
     return ptr;
 }
 
@@ -136,7 +199,7 @@ char* __wrap_strndup(const char* str, size_t max) {
         return NULL;
     }
 
-    add_ptr(STRNDUP, ptr, strlen(ptr) + 1);
+    add_ptr(STRNDUP, ptr, strlen(ptr) + 1, __builtin_return_address(0));
     return ptr;
 }
 
@@ -172,23 +235,33 @@ void clearList(leak_list_node* begin) {
 }
 
 void initLeakDetector() {
+    if(initialized) {
+        return;
+    }
+
     pthread_mutex_init(&mutex, NULL);
     pthread_mutex_lock(&mutex);
 
+    // hide from leak list
+    C2D_TextBufDelete(C2D_TextBufNew(0));
+    initSymbolMap();
+
     initialized = true;
-
-    clearList(beginNode);
-    beginNode = NULL;
-
     pthread_mutex_unlock(&mutex);
 }
 
 void exitLeakDetector() {
+    if(!initialized) {
+        return;
+    }
+
+    initialized = false;
     pthread_mutex_lock(&mutex);
 
     clearList(beginNode);
-    initialized = false;
+    beginNode = NULL;
 
+    freeSymbolMap();
     pthread_mutex_destroy(&mutex);
 }
 
@@ -229,28 +302,18 @@ leak_list_node* cloneCurrentList() {
 
     pthread_mutex_lock(&mutex);
 
-    leak_list_node* realNode = beginNode;
-    leak_list_node *begin = NULL, *prevNode = NULL, *node = NULL;
+    leak_list_node *realNode = beginNode, *begin = NULL;
     while(realNode != NULL) {
-        node                = (leak_list_node*)__real_malloc(sizeof(leak_list_node));
-        node->next          = NULL;
-        node->data          = realNode->data;
-        node->dataSize      = realNode->dataSize;
-        node->allocatedWith = realNode->allocatedWith;
+        leak_list_node* node = (leak_list_node*)__real_malloc(sizeof(leak_list_node));
+        memcpy(node, realNode, sizeof(leak_list_node));
 
-        if(prevNode == NULL) {
-            begin = node;
-        }
-        else {
-            prevNode->next = node;
-        }
+        node->next = begin;
+        begin      = node;
 
-        prevNode = node;
         realNode = realNode->next;
     }
 
     pthread_mutex_unlock(&mutex);
-
     return begin;
 }
 
@@ -295,5 +358,6 @@ void clearLeaks() {}
 
 leak_list_node* cloneCurrentList() { return NULL; }
 void freeClonedList(leak_list_node* begin) { (void)begin; }
+size_t leakListCurrentLeaked() { return 0; }
 
 #endif

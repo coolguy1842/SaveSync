@@ -2,6 +2,8 @@
 #define __WORKER_HPP__
 
 #include <3ds.h>
+#include <Util/Mutex.hpp>
+#include <atomic>
 #include <functional>
 #include <string>
 
@@ -29,6 +31,9 @@ public:
     void start();
 
     void waitForExit();
+    // sets waitingForExit, but does not block
+    void signalShouldExit();
+
     bool waitingForExit() const;
 
 private:
@@ -36,7 +41,8 @@ private:
 
 private:
     Thread m_thread;
-    bool m_waitingForExit;
+    std::atomic<bool> m_waitingForExit;
+    std::atomic<bool> m_joining;
 
     bool m_threadStarted;
 
@@ -44,6 +50,7 @@ private:
     size_t m_stackSize;
     Processor m_processor;
 
+    Mutex m_mutex;
     std::function<void(Worker*)> m_workerFunction;
 };
 

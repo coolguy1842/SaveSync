@@ -1,7 +1,7 @@
 #include <Client.hpp>
 #include <Config.hpp>
+#include <Debug/Logger.hpp>
 #include <Util/CURLEasy.hpp>
-#include <Util/Logger.hpp>
 #include <cstdlib>
 #include <format>
 #include <malloc.h>
@@ -9,12 +9,12 @@
 #define SOC_ALIGN      0x1000
 #define SOC_BUFFERSIZE 0x100000
 
+Result Client::performFailError() { return MAKERESULT(RL_PERMANENT, RS_NOTFOUND, RM_APPLICATION, RD_NO_DATA); }
+Result Client::invalidStatusCodeError() { return MAKERESULT(RL_PERMANENT, RS_INVALIDRESVAL, RM_APPLICATION, RD_INVALID_COMBINATION); }
+
 bool Client::SOCInitialized = false;
 u32* Client::SOCBuffer      = nullptr;
 size_t Client::numClients   = 0;
-
-Result Client::performFailError() { return MAKERESULT(RL_PERMANENT, RS_NOTFOUND, RM_APPLICATION, RD_NO_DATA); }
-Result Client::invalidStatusCodeError() { return MAKERESULT(RL_PERMANENT, RS_INVALIDRESVAL, RM_APPLICATION, RD_INVALID_COMBINATION); }
 
 bool Client::initSOC() {
     if(SOCInitialized) {
@@ -64,7 +64,7 @@ bool Client::initSOC() {
 }
 
 void Client::closeSOC() {
-    if(!SOCInitialized || numClients >= 1) {
+    if(!SOCInitialized || numClients != 0) {
         return;
     }
 
@@ -80,7 +80,7 @@ void Client::closeSOC() {
 Client::Client(std::string url)
     : m_valid(false)
     , m_url(url)
-    , m_requestWorker(new Worker([this](Worker*) { queueWorkerMain(); }, 6, 0x10000))
+    , m_requestWorker(std::make_unique<Worker>([this](Worker*) { queueWorkerMain(); }, 6, 0x10000))
     , m_serverOnline(false)
     , m_titleInfoCached(false)
     , m_processRequests(true)
@@ -93,28 +93,37 @@ Client::Client(std::string url)
     }
 
     numClients++;
+
+    CondVar_Init(&m_requestSignal);
     m_valid = true;
 }
 
 Client::~Client() {
-    m_networkQueueChangedSignal.setBlocked(true);
-    m_requestProgressChangedSignal.setBlocked(true);
-    m_titleCacheChangedSignal.setBlocked(true);
-    m_titleInfoChangedSignal.setBlocked(true);
-    m_requestStatusChangedSignal.setBlocked(true);
-    m_requestFailedSignal.setBlocked(true);
+    networkQueueChangedSignal.clear();
+    requestProgressChangedSignal.clear();
+    titleCacheChangedSignal.clear();
+    titleInfoChangedSignal.clear();
+    requestStatusChangedSignal.clear();
+    requestFailedSignal.clear();
 
-    if(m_valid && numClients != 0) {
-        numClients--;
+    if(!m_valid) {
+        return;
     }
+
+    m_valid = false;
+
+    m_requestWorker->signalShouldExit();
+    CondVar_Broadcast(&m_requestSignal);
 
     m_requestWorker->waitForExit();
     m_requestWorker.reset();
 
+    if(numClients != 0) {
+        numClients--;
+    }
+
     closeSOC();
 }
-
-bool Client::cachedTitleInfoLoaded() const { return m_titleInfoCached; }
 
 bool Client::valid() const { return m_valid; }
 bool Client::wifiEnabled() {

@@ -1,20 +1,9 @@
 #include <Config.hpp>
 #include <Theme.hpp>
 #include <UI/MainScreen.hpp>
+#include <Util/ClayDefines.hpp>
 #include <clay.h>
 #include <clay_renderer_C2D.hpp>
-
-#define HSPACER_0()    CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_GROW(), .height = CLAY_SIZING_FIT() } } })
-#define HSPACER_1(pix) CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_FIXED(pix), .height = CLAY_SIZING_FIT() } } })
-
-#define HSPACER_X(x, pix, FUNC, ...) FUNC
-#define HSPACER(...)                 HSPACER_X(, ##__VA_ARGS__, HSPACER_1(__VA_ARGS__), HSPACER_0(__VA_ARGS__))
-
-#define VSPACER_0()    CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_FIT(), .height = CLAY_SIZING_GROW() } } })
-#define VSPACER_1(pix) CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_FIT(), .height = CLAY_SIZING_FIXED(pix) } } })
-
-#define VSPACER_X(x, pix, FUNC, ...) FUNC
-#define VSPACER(...)                 VSPACER_X(, ##__VA_ARGS__, VSPACER_1(__VA_ARGS__), VSPACER_0(__VA_ARGS__))
 
 #define _BADGE(...)                             \
     CLAY_AUTO_ID({                              \
@@ -31,11 +20,6 @@
     })
 
 #define BADGE(...) _BADGE(.backgroundColor = __VA_ARGS__)
-
-void MainScreen::updateLoadedText(size_t loaded) {
-    m_loadedText   = std::format("{}/{} Loaded", loaded, m_loader->totalTitles());
-    m_loadedString = { .isStaticallyAllocated = false, .length = static_cast<int32_t>(m_loadedText.size()), .chars = m_loadedText.c_str() };
-}
 
 void MainScreen::updateQueuedText(size_t queueSize, bool processing) {
     m_networkQueueText   = std::format("{} Queued", queueSize - processing);
@@ -58,21 +42,12 @@ MainScreen::MainScreen(std::shared_ptr<Config> config, std::shared_ptr<TitleLoad
     : m_config(config)
     , m_loader(loader)
     , m_client(client)
-    , m_settingsScreen(new SettingsScreen(config))
+    , m_settingsScreen(std::make_unique<SettingsScreen>(config))
     , m_selectedTitle(0) {
-    m_loader->titlesLoadedChangedSignal()->connect(this, &MainScreen::updateLoadedText);
-
-    m_client->networkQueueChangedSignal()->connect(this, &MainScreen::updateQueuedText);
-    m_client->requestStatusChangedSignal()->connect(this, &MainScreen::updateRequestStatusText);
-    m_client->requestFailedSignal()->connect(this, &MainScreen::onClientRequestFailed);
-
-    m_loader->titlesFinishedLoadingSignal()->connect([this]() {
-        m_titleTexts.clear();
-
-        for(auto title : m_loader->titles()) {
-            m_titleTexts += title->longDescription();
-        }
-    });
+    // TODO: fix unmapped read with signals
+    m_client->networkQueueChangedSignal.connect<&MainScreen::updateQueuedText>(this);
+    m_client->requestStatusChangedSignal.connect<&MainScreen::updateRequestStatusText>(this);
+    m_client->requestFailedSignal.connect<&MainScreen::onClientRequestFailed>(this);
 }
 
 void MainScreen::scrollToCurrent() {
@@ -87,34 +62,34 @@ void MainScreen::scrollToCurrent() {
     m_scroll = std::clamp(m_scroll, static_cast<u16>(0), static_cast<u16>(m_rows - m_visibleRows));
 }
 
-void MainScreen::tryUpload(Container container) {
+void MainScreen::tryUpload(Container titleContainer) {
     if(m_selectedTitle >= m_loader->titles().size()) {
         return;
     }
 
     auto title = m_loader->titles()[m_selectedTitle];
-    if(!title->containerAccessible(container) || title->getContainerFiles(container).empty()) {
+    if(!title->containerAccessible(titleContainer) || title->getContainerFiles(titleContainer).empty()) {
         return;
     }
 
-    switch(container) {
+    switch(titleContainer) {
     case SAVE:    showYesNo("Upload Save", QueuedRequest::UPLOAD_SAVE, title); return;
     case EXTDATA: showYesNo("Upload Extdata", QueuedRequest::UPLOAD_EXTDATA, title); return;
     default:      return;
     }
 }
 
-void MainScreen::tryDownload(Container container) {
+void MainScreen::tryDownload(Container titleContainer) {
     if(m_selectedTitle >= m_loader->titles().size()) {
         return;
     }
 
     auto title = m_loader->titles()[m_selectedTitle];
-    if(!title->containerAccessible(container)) {
+    if(!title->containerAccessible(titleContainer)) {
         return;
     }
 
-    switch(container) {
+    switch(titleContainer) {
     case SAVE:    showYesNo("Download Save", QueuedRequest::DOWNLOAD_SAVE, title); return;
     case EXTDATA: showYesNo("Download Extdata", QueuedRequest::DOWNLOAD_EXTDATA, title); return;
     default:      return;
@@ -366,7 +341,7 @@ void MainScreen::TitleIcon(std::shared_ptr<Title> title, float width, float heig
     }
 }
 
-void MainScreen::GridLayout() {
+inline void MainScreen::GridLayout() {
     Clay_ElementData data = Clay_GetElementData(CLAY_ID("Titles"));
     if(!data.found || data.boundingBox.width == 0.0f || data.boundingBox.height == 0.0f) {
         return;
@@ -463,6 +438,20 @@ void MainScreen::ListLayout() {
 }
 
 void MainScreen::renderTop() {
+    size_t loadedTitles = m_loader->titlesLoaded();
+    if(m_prevLoadedTitles != loadedTitles) {
+        m_loadedText   = std::format("{}/{} Loaded", loadedTitles, m_loader->totalTitles());
+        m_loadedString = { .isStaticallyAllocated = false, .length = static_cast<int32_t>(m_loadedText.size()), .chars = m_loadedText.c_str() };
+
+        m_titleTexts.clear();
+
+        for(auto title : m_loader->titles()) {
+            m_titleTexts += title->longDescription();
+        }
+
+        m_prevLoadedTitles = loadedTitles;
+    }
+
     CLAY(
         CLAY_ID("Body"),
         {

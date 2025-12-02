@@ -26,8 +26,8 @@ SettingsScreen::SettingsScreen(std::shared_ptr<Config> config)
     updateDisplayURL();
     updateDisplayPort();
 
-    m_config->serverURL()->changedEmptySignal()->connect(this, &SettingsScreen::updateDisplayURL);
-    m_config->serverPort()->changedEmptySignal()->connect(this, &SettingsScreen::updateDisplayPort);
+    m_config->serverURL()->changedEmptySignal.connect<&SettingsScreen::updateDisplayURL>(this);
+    m_config->serverPort()->changedEmptySignal.connect<&SettingsScreen::updateDisplayPort>(this);
 }
 
 bool SettingsScreen::isActive() const { return m_active; }
@@ -412,10 +412,11 @@ void SettingsScreen::renderBottom() {
             })
 
             OPTION("Layout", "Layout")
-
 #undef OPTION
 
-            const uint16_t hoverPad        = 1;
+            const uint16_t hoverPad  = 1;
+            const uint16_t arrowSize = 18;
+
             const Clay_Padding leftDefault = { 2, 8, 12, 12 };
             const Clay_Padding leftHovered = {
                 static_cast<uint16_t>(leftDefault.left + hoverPad),
@@ -424,13 +425,17 @@ void SettingsScreen::renderBottom() {
                 static_cast<uint16_t>(leftDefault.bottom + hoverPad)
             };
 
-            const Clay_SizingAxis triangleSize = CLAY_SIZING_FIXED(10);
+            u32 kDown = hidKeysDown();
+            u32 kHeld = hidKeysHeld();
+
+            bool leftPressed  = kDown & KEY_LEFT || kHeld & KEY_LEFT;
+            bool rightPressed = kDown & KEY_RIGHT || kHeld & KEY_RIGHT;
 
             CLAY(
                 CLAY_ID("PreviousOption"),
                 {
                     .layout = {
-                        .padding        = Clay_Hovered() ? leftHovered : leftDefault,
+                        .padding        = (leftPressed = Clay_Hovered() || leftPressed) ? leftHovered : leftDefault,
                         .childAlignment = { .y = CLAY_ALIGN_Y_CENTER },
                     },
                     .backgroundColor = Theme::Surface2(),
@@ -449,17 +454,8 @@ void SettingsScreen::renderBottom() {
                     scrollLeft();
                 }
 
-                static CustomElementData leftPolygon = {
-                    .type    = CUSTOM_ELEMENT_TYPE_POLYGON,
-                    .polygon = {
-                        .a = { 1.0f, 0.0f },
-                        .b = { 0.0f, 0.5f },
-                        .c = { 1.0f, 1.0f },
-                    },
-                };
-
                 Clay_Color background = m_scrollTarget <= SCROLL_MIN ? Theme::ButtonDisabled() : Theme::Text();
-                CLAY_AUTO_ID({ .layout = { .sizing = { .width = triangleSize, .height = triangleSize } }, .backgroundColor = background, .custom = { .customData = &leftPolygon } });
+                CLAY_TEXT(CLAY_STRING("\uE01A"), CLAY_TEXT_CONFIG({ .textColor = background, .fontSize = static_cast<uint16_t>(arrowSize + leftPressed) }));
             }
 
             const Clay_Padding rightDefault = { leftDefault.right, leftDefault.left, leftDefault.top, leftDefault.bottom };
@@ -469,7 +465,7 @@ void SettingsScreen::renderBottom() {
                 CLAY_ID("NextOption"),
                 {
                     .layout = {
-                        .padding        = Clay_Hovered() ? rightHovered : rightDefault,
+                        .padding        = (rightPressed = Clay_Hovered() || rightPressed) ? rightHovered : rightDefault,
                         .childAlignment = { .y = CLAY_ALIGN_Y_CENTER },
                     },
                     .backgroundColor = Theme::Surface2(),
@@ -488,17 +484,8 @@ void SettingsScreen::renderBottom() {
                     scrollRight();
                 }
 
-                static CustomElementData rightPolygon = {
-                    .type    = CUSTOM_ELEMENT_TYPE_POLYGON,
-                    .polygon = {
-                        .a = { 0.0f, 0.0f },
-                        .b = { 1.0f, 0.5f },
-                        .c = { 0.0f, 1.0f },
-                    },
-                };
-
                 Clay_Color background = m_scrollTarget >= SCROLL_MAX ? Theme::ButtonDisabled() : Theme::Text();
-                CLAY_AUTO_ID({ .layout = { .sizing = { .width = triangleSize, .height = triangleSize } }, .backgroundColor = background, .custom = { .customData = &rightPolygon } });
+                CLAY_TEXT(CLAY_STRING("\uE019"), CLAY_TEXT_CONFIG({ .textColor = background, .fontSize = static_cast<uint16_t>(arrowSize + rightPressed) }));
             }
         }
 

@@ -1,8 +1,8 @@
 #include <Client.hpp>
 #include <Config.hpp>
+#include <Debug/Logger.hpp>
 #include <Util/CURLEasy.hpp>
 #include <Util/Defines.hpp>
-#include <Util/Logger.hpp>
 #include <Util/StringUtil.hpp>
 #include <format>
 #include <rapidjson/document.h>
@@ -29,8 +29,15 @@ constexpr std::optional<FileInfo> getFileInfo(const rapidjson::Value& val) {
     };
 }
 
-std::unordered_map<u64, TitleInfo> Client::cachedTitleInfo() const { return m_cachedTitleInfo; }
+bool Client::cachedTitleInfoLoaded() const { return m_titleInfoCached; }
+std::unordered_map<u64, TitleInfo> Client::cachedTitleInfo() {
+    auto lock = m_cachedTitleInfoMutex.lock();
+    return m_cachedTitleInfo;
+}
+
 void Client::clearTitleInfoCache() {
+    auto lock = m_cachedTitleInfoMutex.lock();
+
     m_titleInfoCached = false;
     m_cachedTitleInfo.clear();
 }
@@ -45,6 +52,7 @@ Result Client::loadTitleInfoCache() {
         .customProgressFunction = [this](curl_off_t, curl_off_t, curl_off_t, curl_off_t) noexcept -> int {
             return m_requestWorker->waitingForExit();
         },
+        .connectTimeout = 2,
 
         .write = WriteOptions{
             .callback = [&document](char* buf, size_t bufSize) noexcept -> size_t {
@@ -60,7 +68,10 @@ Result Client::loadTitleInfoCache() {
     setOnline(code == CURLE_OK);
 
     if(code != CURLE_OK) {
-        Logger::warn("Title Info", "Invalid CURL code: {}", static_cast<int>(code));
+        if(code != CURLE_COULDNT_CONNECT) {
+            Logger::warn("Title Info", "Invalid CURL code: {}", static_cast<int>(code));
+        }
+
         return performFailError();
     }
     else if(easy.statusCode() != 200) {
@@ -139,21 +150,25 @@ Result Client::loadTitleInfoCache() {
     if(!changed.empty() || !removed.empty()) {
         m_titleInfoCached = true;
 
-        m_cachedTitleInfo.swap(newCache);
-        m_titleCacheChangedSignal();
+        {
+            auto lock = m_cachedTitleInfoMutex.lock();
+            m_cachedTitleInfo.swap(newCache);
+        }
+
+        titleCacheChangedSignal();
 
         for(auto title : changed) {
-            m_titleInfoChangedSignal(title, m_cachedTitleInfo[title]);
+            titleInfoChangedSignal(title, m_cachedTitleInfo[title]);
         }
 
         for(auto title : removed) {
             TitleInfo info;
-            m_titleInfoChangedSignal(title, info);
+            titleInfoChangedSignal(title, info);
         }
     }
     else if(!m_titleInfoCached) {
         m_titleInfoCached = true;
-        m_titleCacheChangedSignal();
+        titleCacheChangedSignal();
     }
 
     return RL_SUCCESS;

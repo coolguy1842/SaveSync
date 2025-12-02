@@ -3,7 +3,7 @@
 
 #include <FS/File.hpp>
 #include <Util/Defines.hpp>
-#include <Util/LeakDetector.h>
+#include <Util/Mutex.hpp>
 #include <format>
 #include <memory>
 #include <stdio.h>
@@ -38,9 +38,6 @@ public:
     LOGGER(critical, CRITICAL)
 
     static void logProfiler();
-
-    static void logLeaks();
-    static void logLeaks(leak_list_node* beginNode);
 
 private:
     enum Level {
@@ -98,6 +95,8 @@ private:
 
     static bool s_dirInitialized;
     static bool s_dirExists;
+
+    static Mutex s_fileMutex;
 };
 
 #endif

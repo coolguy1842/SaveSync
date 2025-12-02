@@ -7,8 +7,9 @@
 #include <UI/SettingsScreen.hpp>
 #include <clay.h>
 #include <memory>
+#include <rocket.hpp>
 
-class MainScreen : public Screen {
+class MainScreen : public Screen, rocket::trackable {
 public:
     MainScreen(std::shared_ptr<Config> config, std::shared_ptr<TitleLoader> loader, std::shared_ptr<Client> client);
     ~MainScreen() = default;
@@ -19,7 +20,6 @@ public:
     void renderBottom();
 
 private:
-    void updateLoadedText(size_t loaded);
     void updateQueuedText(size_t queueSize, bool processing);
     void updateRequestStatusText(std::string status);
     void onClientRequestFailed(std::string status);
@@ -58,6 +58,8 @@ private:
     QueuedRequest m_yesNoAction;
 
     bool m_okActive = false;
+
+    size_t m_prevLoadedTitles = std::numeric_limits<size_t>::max();
 
     std::string m_loadedText, m_yesNoText, m_okText;
     Clay_String m_loadedString = CLAY_STRING(""), m_yesNoString = CLAY_STRING(""), m_okString = CLAY_STRING("");

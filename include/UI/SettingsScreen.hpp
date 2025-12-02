@@ -5,8 +5,9 @@
 #include <UI/Screen.hpp>
 #include <clay.h>
 #include <memory>
+#include <rocket.hpp>
 
-class SettingsScreen : public Screen {
+class SettingsScreen : public Screen, rocket::trackable {
 public:
     SettingsScreen(std::shared_ptr<Config> config);
 

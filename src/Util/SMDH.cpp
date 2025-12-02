@@ -1,6 +1,6 @@
+#include <Debug/Profiler.hpp>
 #include <FS/Archive.hpp>
 #include <FS/File.hpp>
-#include <Util/Profiler.hpp>
 #include <Util/SMDH.hpp>
 
 SMDH::SMDH(u64 id, FS_MediaType media)

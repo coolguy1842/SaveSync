@@ -3,10 +3,10 @@
 
 #include <Client.hpp>
 #include <Config.hpp>
+#include <Debug/Logger.hpp>
 #include <FS/File.hpp>
 #include <Util/CURLEasy.hpp>
 #include <Util/Defines.hpp>
-#include <Util/Logger.hpp>
 #include <Util/StringUtil.hpp>
 #include <rapidjson/document.h>
 #include <rapidjson/rapidjson.h>
@@ -166,7 +166,7 @@ Result Client::uploadFile(const std::string& ticket, std::shared_ptr<File> file,
 
                 fileReadOffset += read;
                 m_progressCurrent += read;
-                m_requestProgressChangedSignal(m_progressCurrent, m_progressMax);
+                requestProgressChangedSignal(m_progressCurrent, m_progressMax);
 
                 return static_cast<size_t>(read);
             },
@@ -246,7 +246,7 @@ Result Client::upload(std::shared_ptr<Title> title, Container container) {
     }
 
     title->reloadContainerFiles(container);
-    std::unique_lock lock(title->containerMutex(container));
+    auto lock = title->containerMutex(container).lock();
 
     std::shared_ptr<Archive> archive = title->openContainer(container);
     if(archive == nullptr || !archive->valid()) {
@@ -287,7 +287,7 @@ Result Client::upload(std::shared_ptr<Title> title, Container container) {
         m_progressMax += size;
     }
 
-    m_requestProgressChangedSignal(m_progressCurrent, m_progressMax);
+    requestProgressChangedSignal(m_progressCurrent, m_progressMax);
     for(const std::string& path : requestedFiles) {
         std::shared_ptr<File> file = archive->openFile(path, FS_OPEN_READ, 0);
         if(file == nullptr || !file->valid()) {
@@ -315,6 +315,7 @@ Result Client::upload(std::shared_ptr<Title> title, Container container) {
         goto cancelExit;
     }
 
+    auto infoLock = m_cachedTitleInfoMutex.lock();
     switch(container) {
     case SAVE:    m_cachedTitleInfo[title->id()].save = title->getContainerFiles(container); break;
     case EXTDATA: m_cachedTitleInfo[title->id()].extdata = title->getContainerFiles(container); break;

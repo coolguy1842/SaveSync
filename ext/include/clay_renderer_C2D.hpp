@@ -17,8 +17,7 @@ struct Clay_C2DRendererData {
 };
 
 enum CustomElementType {
-    CUSTOM_ELEMENT_TYPE_CIRCLE = 0,
-    CUSTOM_ELEMENT_TYPE_POLYGON
+    CUSTOM_ELEMENT_TYPE_CIRCLE = 0
 };
 
 // vectors clamped from 0 to 1
