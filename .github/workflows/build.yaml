@@ -43,7 +43,7 @@ jobs:
           github-token: ${{secrets.REPO_TOKEN}}
           script: |
             const { owner, repo } = context.repo
-            const { data: { id } } = await github.rest.repos.getReleaseByTag({ owner, repo, tag: ${{ github.ref_name }} })
+            const { data: { id } } = await github.rest.repos.getReleaseByTag({ owner, repo, tag: '${{ github.ref_name }}' })
             await github.rest.repos.deleteRelease({ owner, repo, release_id: id })
 
       - name: Release
