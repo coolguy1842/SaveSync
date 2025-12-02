@@ -45,6 +45,7 @@ jobs:
             const { owner, repo } = context.repo
             const { data: { id } } = await github.rest.repos.getReleaseByTag({ owner, repo, tag: '${{ github.ref_name }}' })
             await github.rest.repos.deleteRelease({ owner, repo, release_id: id })
+            await github.rest.git.deleteRef({ owner, repo, ref: 'tags/${{ github.ref_name }}'' })
 
       - name: Release
         uses: softprops/action-gh-release@v2
