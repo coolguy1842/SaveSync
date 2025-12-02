@@ -197,7 +197,7 @@ else()
 			DEPENDS ${MAKEROM_DEPS}
 		)
 
-		add_custom_target(${PROJECT_NAME}_cia DEPENDS ${CIA_FILE})
+		add_custom_target(${PROJECT_NAME}_cia ALL DEPENDS ${CIA_FILE})
 		install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${BINARY_NAME}.cia DESTINATION cia COMPONENT ${PROJECT_NAME})
 	endif()
 endif()
