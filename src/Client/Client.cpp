@@ -176,7 +176,7 @@ u64 Client::requestProgressMax() const { return m_progressMax; }
 
 QueuedRequest Client::currentRequest() const { return m_activeRequest.value_or(QueuedRequest{ .type = QueuedRequest::NONE, .title = nullptr }); }
 
-size_t Client::requestQueueSize() const { return m_requestQueue.size(); }
+size_t Client::requestQueueSize() const { return m_requestQueue.size() + m_stagingRequestQueue.size(); }
 std::string Client::requestStatus() const { return m_requestStatus; }
 
 std::string Client::url() const { return m_url; }
