@@ -41,15 +41,21 @@ jobs:
         with:
           args: bash -c "git config --global --add safe.directory /github/workspace && cmake --build build"
 
-      - name: Update dev-build tag
-        continue-on-error: true
-        run: |
-          git tag -d ${{ env.dev_tag }} || true
-          git push origin :refs/tags/${{ env.dev_tag }} || true
-          git tag ${{ env.dev_tag }}
-          git push origin ${{ env.dev_tag }}
+      - name: Delete Old Latest Release
+        uses: cb80/delrel@latest
+        with:
+          tag: ${{ env.dev_tag }}
+          token: ${{ secrets.REPO_TOKEN }}
 
-      - name: Release
+      - name: Create New Latest Tag
+        uses: rickstaa/action-create-tag@v1
+        with:
+          tag: ${{ env.dev_tag }}
+          tag_exists_error: false
+          github_token: ${{ secrets.REPO_TOKEN }}
+          message: "Latest Release"
+
+      - name: Create Release
         continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
