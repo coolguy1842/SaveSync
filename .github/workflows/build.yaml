@@ -3,6 +3,9 @@ on:
   push:
     branches: [ master ]
 
+env:
+  dev_tag: latest
+
 jobs:
   build:
     name: Build
@@ -38,16 +41,16 @@ jobs:
         with:
           args: bash -c "git config --global --add safe.directory /github/workspace && cmake --build build"
 
-      - uses: actions/github-script@v8
+      - name: Update dev-build tag
         continue-on-error: true
-        with:
-          github-token: ${{secrets.REPO_TOKEN}}
-          script: |
-            const { owner, repo } = context.repo
-            const { data: { id } } = await github.rest.repos.getReleaseByTag({ owner, repo, tag: '${{ github.ref_name }}' })
-            await github.rest.repos.deleteRelease({ owner, repo, release_id: id })
+        run: |
+          git tag -d ${{ env.dev_tag }} || true
+          git push origin :refs/tags/${{ env.dev_tag }} || true
+          git tag ${{ env.dev_tag }}
+          git push origin ${{ env.dev_tag }}
 
       - name: Release
+        continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
           prerelease: true
@@ -55,7 +58,7 @@ jobs:
           files: |
             build/SaveSync.3dsx
             build/SaveSync.cia
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ env.dev_tag }}
           token: ${{ secrets.REPO_TOKEN }}
 
       - name: Upload Artifacts
