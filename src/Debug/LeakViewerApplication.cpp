@@ -23,6 +23,7 @@ void LeakViewerApplication::initClay() {
 void LeakViewerApplication::initLeakList() {
     // prevent profiler & sdmc from showing up on leak list
     Profiler::reset();
+    Logger::closeLogFile();
     Archive::closeSDMC();
 
     m_leakBegin          = cloneCurrentList();
@@ -121,14 +122,14 @@ void LeakViewerApplication::updateScroll() {
 void LeakViewerApplication::update() {
     hidScanInput();
 
-    u32 kDown   = hidKeysDown();
-    u32 kHeld   = hidKeysHeld();
-    u32 kRepeat = hidKeysDownRepeat();
-    if(aptIsHomeAllowed() && kDown & KEY_START && !(kDown & KEY_L || kHeld & KEY_L)) {
+    u32 kDown = hidKeysDown();
+    u32 kHeld = hidKeysHeld();
+    if(kDown & KEY_START && !(kDown & KEY_L || kHeld & KEY_L)) {
         setShouldExit();
         return;
     }
 
+    u32 kRepeat = hidKeysDownRepeat();
     if(kRepeat & KEY_UP && m_selectedLeak != 0) {
         m_selectedLeak--;
         updateScroll();

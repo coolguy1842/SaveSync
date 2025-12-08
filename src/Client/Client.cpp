@@ -3,7 +3,6 @@
 #include <Debug/Logger.hpp>
 #include <Util/CURLEasy.hpp>
 #include <cstdlib>
-#include <format>
 #include <malloc.h>
 
 #define SOC_ALIGN      0x1000

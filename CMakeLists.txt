@@ -42,6 +42,7 @@ add_executable(${PROJECT_NAME}
 	src/Util/Mutex.cpp
 	src/Util/Worker.cpp
 	src/Util/CURLEasy.cpp
+	src/Util/TexWrapper.cpp
 	src/Util/SMDH.cpp
 
 	src/FS/FSUtil.cpp

@@ -26,9 +26,8 @@ SMDH::SMDH(u32 lowID, u32 highID, FS_MediaType media)
     }
 
     // from checkpoint: https://github.com/BernardoGiordano/Checkpoint/blob/3f94b5c8816a323348c8f84eeaf5a53d2c3bebe6/3ds/source/title.cpp#L35
-    m_bigIcon = { new C3D_Tex, &ICON_SUBTEX };
-    C3D_TexInit(m_bigIcon.tex, ICON_DATA_WIDTH, ICON_DATA_HEIGHT, GPU_RGB565);
-    copyImageData(m_data.bigIconData, ICON_WIDTH, ICON_HEIGHT, reinterpret_cast<u16*>(m_bigIcon.tex->data), ICON_DATA_WIDTH, ICON_DATA_HEIGHT);
+    m_bigTex = TexWrapper::create(ICON_DATA_WIDTH, ICON_DATA_HEIGHT, GPU_RGB565);
+    copyImageData(m_data.bigIconData, ICON_WIDTH, ICON_HEIGHT, reinterpret_cast<u16*>(m_bigTex->handle()->data), ICON_DATA_WIDTH, ICON_DATA_HEIGHT);
 
     m_valid = true;
 }
@@ -63,4 +62,4 @@ const SMDH::ApplicationTitle& SMDH::applicationTitle(u8 index) const {
     return m_data.applicationTitles[index];
 }
 
-C2D_Image& SMDH::bigIcon() { return m_bigIcon; }
+std::shared_ptr<TexWrapper> SMDH::bigTex() { return m_bigTex; }

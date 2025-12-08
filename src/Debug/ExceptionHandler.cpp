@@ -1,128 +1,49 @@
 #include <Debug/ExceptionHandler.hpp>
+#include <Debug/LeakDetector.h>
 #include <Debug/Logger.hpp>
 #include <Debug/SymbolUtils.h>
-#include <functional>
 #include <malloc.h>
 
-struct UnwindState {
-    stack_trace stack;
-    CpuRegisters* regs;
-
-    bool addAddress(uintptr_t ip) {
-        if(stack.size >= stack.capacity) {
-            return false;
-        }
-
-        if(ip == 0 || (stack.size > 0 && ip == stack.addresses[stack.size - 1])) {
-            return true;
-        }
-
-        stack.addresses[stack.size++] = ip;
-        return true;
-    }
-};
-
-static _Unwind_Reason_Code unwind_func(_Unwind_Context* context, void* data) {
-    if(context == NULL || data == NULL) return _URC_FAILURE;
-    UnwindState* state = reinterpret_cast<UnwindState*>(data);
-
-    if(state->stack.size == 0) {
-        for(u8 i = 0; i <= 12; i++) {
-            _Unwind_SetGR(context, i, state->regs->r[i]);
-        }
-
-        _Unwind_SetGR(context, 13, state->regs->sp);
-        _Unwind_SetGR(context, 14, state->regs->lr);
-        _Unwind_SetIP(context, state->regs->lr);
-
-        state->addAddress(state->regs->pc);
-    }
-
-    return state->addAddress(_Unwind_GetIP(context)) ? _URC_NO_REASON : _URC_END_OF_STACK;
-}
-
-void _ExceptionHandlerInfoFormatter(ERRF_ExceptionInfo* info, CpuRegisters* regs, std::function<void(std::string)> callback) {
-    for(int i = 0; i <= 12; ++i) {
-        callback(std::format("r{}: {:08X}", i, regs->r[i]));
-    }
-
-    callback(std::format("sp: {:08X}", regs->sp));
-    callback(std::format("lr: {:08X}", regs->lr));
-    callback(std::format("pc: {:08X}\n", regs->pc));
-
-    switch(info->type) {
-    case ERRF_EXCEPTION_PREFETCH_ABORT: callback(std::format("Prefetch Abort ({})", info->fsr & (1 << 11) ? "Write" : "Read")); break;
-    case ERRF_EXCEPTION_DATA_ABORT:     callback(std::format("Data Abort ({})", info->fsr & (1 << 11) ? "Write" : "Read")); break;
-    case ERRF_EXCEPTION_UNDEFINED:      callback(std::format("Undefined Instruction")); break;
-    case ERRF_EXCEPTION_VFP:            callback(std::format("Floating Point Exception")); break;
-    default:                            callback(std::format("Unknown Exception Type")); break;
-    }
-
-    UnwindState state = {
-        .stack = allocateStackTrace(10, 0),
-        .regs  = regs
-    };
-
-    if(state.stack.addresses != NULL) {
-        _Unwind_Backtrace(unwind_func, &state);
-    }
-
-    stack_trace stack = state.stack;
-    callback(std::format("Stack Trace"));
-    if(stack.size <= 0) {
-        callback(std::format("Unwind failed, using only program counter"));
-        stack.size = 0;
-
-        const symbol_map_entry* entry = getSymbol(regs->pc);
-        if(entry == NULL) {
-            callback(std::format("0: {:X}", regs->pc));
-        }
-        else {
-            callback(std::format("0: {:X}+{:X} {}", entry->address, regs->pc - entry->address, entry->name));
-        }
-
-        const symbol_map_entry* entry2 = getSymbol(regs->lr);
-        if(entry2 == NULL) {
-            callback(std::format("1?: {:X}", regs->pc));
-        }
-        else {
-            callback(std::format("1?: {:X}+{:X} {}", entry2->address, regs->lr - entry2->address, entry2->name));
-        }
-    }
-
-    for(int i = 0; i < stack.size; i++) {
-        uintptr_t instructionAddr = stack.addresses[i];
-
-        const symbol_map_entry* entry = getSymbol(instructionAddr);
-        if(entry == NULL) {
-            callback(std::format("{}: {:X}", i, instructionAddr));
-            continue;
-        }
-
-        callback(std::format("{}: {:X}+{:X} {}", i, entry->address, instructionAddr - entry->address, entry->name));
-    }
-
-    freeStackTrace(stack);
-}
-
-void ExceptionHandlerLogInfo(ERRF_ExceptionInfo* info, CpuRegisters* regs) {
-    _ExceptionHandlerInfoFormatter(info, regs, [](std::string msg) { Logger::log("{}", msg); });
-}
-
-std::string ExceptionHandlerFormatInfo(ERRF_ExceptionInfo* info, CpuRegisters* regs) {
-    std::string out;
-    _ExceptionHandlerInfoFormatter(info, regs, [&out](std::string msg) { out += msg + "\n"; });
-
-    return out;
-}
-
 void DefaultExceptionHandler(ERRF_ExceptionInfo* info, CpuRegisters* regs) {
+    exitLeakDetector(false);
+
     gfxInitDefault();
     consoleInit(GFX_TOP, NULL);
 
-    ExceptionHandlerLogInfo(info, regs);
+    for(int i = 0; i <= 12; ++i) {
+        printf("r%d: %08lX\n", i, regs->r[i]);
+    }
 
-    printf("\nPress Start to exit...\n");
+    printf("sp: %08lX\n", regs->sp);
+    printf("lr: %08lX\n", regs->lr);
+    printf("pc: %08lX\n\n", regs->pc);
+
+    switch(info->type) {
+    case ERRF_EXCEPTION_PREFETCH_ABORT: printf("Prefetch Abort (%s)\n", info->fsr & (1 << 11) ? "Write" : "Read"); break;
+    case ERRF_EXCEPTION_DATA_ABORT:     printf("Data Abort (%s)\n", info->fsr & (1 << 11) ? "Write" : "Read"); break;
+    case ERRF_EXCEPTION_UNDEFINED:      printf("Undefined Instruction\n"); break;
+    case ERRF_EXCEPTION_VFP:            printf("Floating Point Exception\n"); break;
+    default:                            printf("Unknown Exception Type\n"); break;
+    }
+
+    printf("Stack Trace\n");
+    const symbol_map_entry* entry = getSymbol(regs->pc);
+    if(entry == NULL) {
+        printf("0: %08lX\n", regs->pc);
+    }
+    else {
+        printf("0: %08X+%lX %s\n", entry->address, regs->pc - entry->address, entry->name);
+    }
+
+    const symbol_map_entry* entry2 = getSymbol(regs->lr);
+    if(entry2 == NULL) {
+        printf("1?: %08lX\n", regs->pc);
+    }
+    else {
+        printf("1?: %08X+%lX %s\n", entry2->address, regs->lr - entry2->address, entry2->name);
+    }
+
+    printf("\nPress Select to exit...\n");
     while(aptMainLoop()) {
         gspWaitForVBlank();
         gfxFlushBuffers();
@@ -132,7 +53,7 @@ void DefaultExceptionHandler(ERRF_ExceptionInfo* info, CpuRegisters* regs) {
 
         u32 kDown = hidKeysDown();
         u32 kHeld = hidKeysHeld();
-        if(!(kDown & KEY_L || kHeld & KEY_L) && kDown & KEY_START) {
+        if(!(kDown & KEY_L || kHeld & KEY_L) && kDown & KEY_SELECT) {
             break;
         }
     }
