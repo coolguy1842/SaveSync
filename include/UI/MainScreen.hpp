@@ -51,8 +51,9 @@ private:
     u16 m_rows        = 0;
     u16 m_visibleRows = 0;
 
-    u16 m_cols   = 0;
-    u16 m_scroll = 0;
+    u16 m_cols           = 0;
+    u16 m_scroll         = 0;
+    u16 m_renderedScroll = 0;
 
     bool m_yesNoActive = false, m_yesSelected = false;
     QueuedRequest m_yesNoAction;

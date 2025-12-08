@@ -5,7 +5,7 @@
 
 TitleLoader::TitleLoader()
     : m_SDTitlesLoaded(false)
-    , m_loaderWorker(std::make_unique<Worker>([this](Worker*) { loadWorkerMain(); }, 4, 0x9000))
+    , m_loaderWorker(std::make_unique<Worker>([this](Worker*) { loadWorkerMain(); }, 4, 0x10000))
     , m_hashWorker(std::make_unique<Worker>([this](Worker*) { hashWorkerMain(); }, 3, 0x3000)) {
     amInit();
     reloadTitles();
@@ -66,7 +66,7 @@ void TitleLoader::loadSDTitles(u32 numTitles) {
     }
 
     for(u64 id : ids) {
-        // Logger::log("Load SD Titles", "Loading {:X}", id);
+        Logger::info("Load SD Titles", "Loading {:X}", id);
 
         if(m_loaderWorker->waitingForExit()) {
             Logger::info("Load SD Titles", "Exiting early");

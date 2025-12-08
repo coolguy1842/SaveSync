@@ -70,10 +70,8 @@ Title::Title(u64 id, FS_MediaType mediaType, FS_CardType cardType)
 }
 
 Title::~Title() {
-    if(m_icon.tex != nullptr) {
-        C3D_TexDelete(m_icon.tex);
-        delete m_icon.tex;
-    }
+    m_icon = { nullptr, nullptr };
+    m_tex.reset();
 }
 
 bool Title::valid() const { return m_valid; }
@@ -277,7 +275,10 @@ void Title::loadContainerFiles(Container container, bool cache, std::shared_ptr<
     files.swap(newFiles);
 
     if(cache) {
-        lock.release();
+        if(shouldLock) {
+            lock.release();
+        }
+
         saveCache();
     }
 }
@@ -333,11 +334,12 @@ void Title::hashContainer(Container container) {
         it++;
     }
 
+    lock.release();
     saveCache();
 }
 
 constexpr std::string formatFileInfo(Container container, FileInfo file) {
-    return std::format("{}{}{}:{}\n", container == SAVE ? 's' : 'e', file.size, file.path, file.hash.value_or(" "));
+    return std::format("{}{}{}:{}\n", container == SAVE ? 's' : 'e', file.size, file.path, file.hash.value_or(""));
 }
 constexpr size_t versionSize = 3;
 
@@ -354,7 +356,9 @@ bool Title::loadSMDHData() {
     m_longDescription = StringUtil::toUTF8(smdh->applicationTitle(1).longDescription);
     std::replace(m_longDescription.begin(), m_longDescription.end(), '\n', ' ');
 
-    m_icon = smdh->bigIcon();
+    m_tex  = smdh->bigTex();
+    m_icon = { m_tex->handle(), &SMDH::ICON_SUBTEX };
+
     return true;
 }
 
@@ -395,6 +399,8 @@ void Title::saveCache() {
     }
 
     for(auto container : { SAVE, EXTDATA }) {
+        auto containerLock = containerMutex(container).lock();
+
         for(auto file : getContainerFiles(container)) {
             stream << formatFileInfo(container, file);
         }
@@ -430,7 +436,10 @@ bool Title::loadCache() {
 
     PROFILE_SCOPE("Load Title Cache");
 
-    auto lock                     = m_cacheMutex.lock();
+    auto lock        = m_cacheMutex.lock();
+    auto saveLock    = m_saveMutex.lock();
+    auto extdataLock = m_extdataMutex.lock();
+
     std::shared_ptr<Archive> sdmc = Archive::sdmc();
     std::shared_ptr<File> file;
 
@@ -455,16 +464,18 @@ bool Title::loadCache() {
             Logger::info("Load Title Cached Files", "Cache doesn't have required entries for {:X}, updating", m_id);
         }
 
-        if(m_icon.tex != nullptr) {
-            delete m_icon.tex;
-            m_icon = { nullptr, nullptr };
-        }
+    invalid:
+        m_saveFiles.clear();
+        m_extdataFiles.clear();
+
+        m_icon = { nullptr, nullptr };
+        m_tex.reset();
 
         file.reset();
         lock.release();
 
-        if(m_saveAccessible) loadContainerFiles(SAVE, false);
-        if(m_extdataAccessible) loadContainerFiles(EXTDATA, false);
+        if(m_saveAccessible) loadContainerFiles(SAVE, false, nullptr, false);
+        if(m_extdataAccessible) loadContainerFiles(EXTDATA, false, nullptr, false);
 
         saveCache();
         return m_icon.tex != nullptr;
@@ -486,60 +497,158 @@ bool Title::loadCache() {
         goto invalidCache;
     }
 
-    size_t offset = read;
-    if(fileSize - offset < sizeof(TitleData)) {
+    u64 fileOffset = read;
+    if(fileSize - fileOffset < sizeof(TitleData)) {
         goto invalidCache;
     }
 
-    TitleData titleData;
-    read = file->read(&titleData, sizeof(TitleData), offset);
+    std::unique_ptr<TitleData> titleData;
+    titleData.reset(new TitleData);
+    read = file->read(titleData.get(), sizeof(TitleData), fileOffset);
 
-    if(read != sizeof(titleData) || R_FAILED(file->lastResult())) {
+    if(read != sizeof(TitleData) || R_FAILED(file->lastResult())) {
         goto invalidCache;
     }
 
-    offset += read;
-    m_shortDescription = titleData.shortDesc;
-    m_longDescription  = titleData.longDesc;
+    fileOffset += read;
+    m_shortDescription = titleData->shortDesc;
+    m_longDescription  = titleData->longDesc;
 
-    m_icon = { new C3D_Tex, &SMDH::ICON_SUBTEX };
-    C3D_TexInit(m_icon.tex, SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT, GPU_RGB565);
-    SMDH::copyImageData(titleData.texData, SMDH::ICON_WIDTH, SMDH::ICON_HEIGHT, reinterpret_cast<u16*>(m_icon.tex->data), SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT);
+    m_tex  = TexWrapper::create(SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT, GPU_RGB565);
+    m_icon = { m_tex->handle(), &SMDH::ICON_SUBTEX };
+
+    SMDH::copyImageData(titleData->texData, SMDH::ICON_WIDTH, SMDH::ICON_HEIGHT, reinterpret_cast<u16*>(m_icon.tex->data), SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT);
 
     m_saveFiles.clear();
     m_extdataFiles.clear();
 
-    std::string fileBuf = file->readStr(fileSize - offset, offset);
-    offset              = 0;
+    constexpr u64 maxBuf = 0x100;
+    u64 bufSize          = 0;
+    char buf[maxBuf];
 
-    while(offset < fileBuf.size()) {
-        char containerCode = fileBuf[offset];
-        if((containerCode != 's' && containerCode != 'e')) {
-            break;
+    enum ReadingType {
+        CONTAINER_CODE = 0,
+        SIZE,
+        PATH,
+        HASH
+    };
+
+    ReadingType reading = CONTAINER_CODE;
+    u64 offset          = bufSize;
+
+    char container = '\0';
+    u64 size       = 0;
+
+    constexpr u32 pathMax = 0x100;
+    u32 pathSize          = 0;
+    char path[pathMax];
+
+    constexpr u32 hashMax = 32;
+    u32 hashSize          = 0;
+    char hash[hashMax];
+
+    while(true) {
+        if(offset >= bufSize) {
+            offset = 0;
+
+            bufSize = file->read(buf, maxBuf, fileOffset);
+            if(bufSize == U64_MAX || R_FAILED(file->lastResult())) {
+                Logger::error("Load Title Cached Files", "Failed to read cache file");
+                goto invalid;
+            }
+            else if(bufSize <= 0) {
+                break;
+            }
+
+            fileOffset += bufSize;
         }
 
-        FileInfo info = { ._shouldUpdateHash = true };
-        char path[0x100];
+        switch(reading) {
+        case CONTAINER_CODE:
+            container = buf[offset];
+            offset++;
 
-        char hash[33];
-        int numRead = 0;
-        if(sscanf(fileBuf.c_str() + offset, "%*c%llu%[^:]:%32[^\n]\n%n", &info.size, path, hash, &numRead) != 3) {
-            Logger::warn("Load Title Cache", "Invalid hashed entry");
+            reading = SIZE;
+            break;
+        case SIZE:
+            for(; offset < bufSize; offset++) {
+                if(!isdigit(static_cast<int>(buf[offset]))) {
+                    reading = PATH;
+                    break;
+                }
+
+                size *= 10;
+                size += static_cast<u64>(buf[offset] - '0');
+            }
+
+            break;
+        case PATH:
+            for(; offset < bufSize; offset++) {
+                char c = buf[offset];
+                if(c == ':') {
+                    reading = HASH;
+                    offset++;
+
+                    break;
+                }
+                else if(pathSize + 1 >= pathMax) {
+                    goto invalidCache;
+                }
+
+                path[pathSize++] = c;
+            }
+
+            break;
+        case HASH:
+            for(; offset < bufSize; offset++) {
+                char c = buf[offset];
+                if(c == '\n' || c == '\0') {
+                    goto addEntry;
+                }
+                else if(hashSize + 1 > hashMax) {
+                    goto invalidCache;
+                }
+
+                hash[hashSize++] = c;
+            }
+
+            break;
+        default: goto invalidCache;
+        }
+
+        continue;
+    addEntry:
+        if(hashSize != 0 && hashSize != hashMax) {
             goto invalidCache;
         }
 
-        if(strlen(hash) == 32) {
-            info.hash = hash;
+        reading = CONTAINER_CODE;
+
+        std::optional<std::string> hashStr;
+        if(hashSize != 0) {
+            hashStr = std::string(hash, hashSize);
         }
 
-        info.path = path;
-        offset += static_cast<u64>(numRead);
+        std::string pathStr = std::string(path, pathSize);
 
-        switch(containerCode) {
+        FileInfo info = {
+            .nativePath = StringUtil::fromUTF8(pathStr),
+            .path       = pathStr,
+            .hash       = hashStr,
+            .size       = size
+        };
+
+        switch(container) {
         case 's': m_saveFiles.push_back(info); break;
         case 'e': m_extdataFiles.push_back(info); break;
-        default:  break;
+        default:  goto invalidCache;
         }
+
+        container = '\0';
+        size      = 0;
+        pathSize  = 0;
+        hashSize  = 0;
+        offset++;
     }
 
     return true;

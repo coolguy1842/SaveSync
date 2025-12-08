@@ -38,6 +38,7 @@ public:
     LOGGER(critical, CRITICAL)
 
     static void logProfiler();
+    static void closeLogFile();
 
 private:
     enum Level {
@@ -97,6 +98,7 @@ private:
     static bool s_dirExists;
 
     static Mutex s_fileMutex;
+    static std::shared_ptr<File> s_file;
 };
 
 #endif

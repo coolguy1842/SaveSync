@@ -33,16 +33,29 @@ struct RenameEntry {
     std::u16string newName;
 };
 
-bool Logger::s_dirInitialized = false;
-bool Logger::s_dirExists      = false;
-Mutex Logger::s_fileMutex     = Mutex();
+bool Logger::s_dirInitialized        = false;
+bool Logger::s_dirExists             = false;
+Mutex Logger::s_fileMutex            = Mutex();
+std::shared_ptr<File> Logger::s_file = nullptr;
+
+void Logger::closeLogFile() {
+    auto lock = s_fileMutex.lock();
+
+    s_file.reset();
+    s_dirExists      = false;
+    s_dirInitialized = false;
+}
 
 std::shared_ptr<File> Logger::openLogFile() {
     const u8 maxLogs = 5;
 
+    if(s_dirInitialized) {
+        return s_file;
+    }
+
     std::shared_ptr<Archive> sdmc = Archive::sdmc();
     if(sdmc == nullptr || !sdmc->valid()) {
-        s_dirExists      = false;
+        s_file           = nullptr;
         s_dirInitialized = true;
 
         Logger::error("Logger File", "Failed to open sdmc");
@@ -111,31 +124,34 @@ std::shared_ptr<File> Logger::openLogFile() {
                 sdmc->renameFile(entry.oldName, entry.newName);
             }
         }
-
-        s_dirExists = true;
-    }
-    else if(!s_dirExists) {
-        return nullptr;
     }
 
-    return sdmc->openFile("/3ds/SaveSync/logs/log.txt", FS_OPEN_CREATE | FS_OPEN_READ | FS_OPEN_WRITE, 0);
+    s_file = sdmc->openFile("/3ds/SaveSync/logs/log.txt", FS_OPEN_CREATE | FS_OPEN_READ | FS_OPEN_WRITE, 0);
+    if(s_file != nullptr && !s_file->valid()) {
+        s_file = nullptr;
+    }
+
+    return s_file;
 }
 
 void Logger::fileLogMessage(const std::string& message) {
-    auto lock = s_fileMutex.lock();
     if(message.empty()) {
         return;
     }
 
-    std::shared_ptr<File> file = openLogFile();
-    if(file != nullptr && file->valid()) {
-        u32 size = file->size();
-        if(size == UINT32_MAX || !file->setSize(size + message.size())) {
-            return;
-        }
+    auto lock = s_fileMutex.lock();
 
-        file->write(message.c_str(), message.size(), size, 0);
+    std::shared_ptr<File> file = openLogFile();
+    if(file == nullptr || !file->valid()) {
+        return;
     }
+
+    u32 size = file->size();
+    if(size == UINT32_MAX || !file->setSize(size + message.size())) {
+        return;
+    }
+
+    file->write(message.c_str(), message.size(), size, 0);
 }
 
 void Logger::logProfiler() {

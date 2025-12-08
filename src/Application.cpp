@@ -86,54 +86,6 @@ void Application::initClay() {
     }
 }
 
-void Application::handleException(ERRF_ExceptionInfo* info, CpuRegisters* regs) {
-    bool wasHandling    = m_handlingException;
-    m_handlingException = true;
-
-    std::string infoStr = ExceptionHandlerFormatInfo(info, regs);
-    if(!wasHandling) {
-        cleanup();
-    }
-
-    gfxInitDefault();
-    consoleInit(GFX_TOP, NULL);
-
-    Logger::log("{}", infoStr);
-    infoStr.clear();
-
-    printf("\nPress Start to exit...\n");
-    while(aptMainLoop()) {
-        gspWaitForVBlank();
-        gfxFlushBuffers();
-        gfxSwapBuffers();
-
-        hidScanInput();
-
-        u32 kDown = hidKeysDown();
-        u32 kHeld = hidKeysHeld();
-        if(!(kDown & KEY_L || kHeld & KEY_L) && kDown & KEY_START) {
-            break;
-        }
-    }
-
-    gfxExit();
-    exit(0);
-}
-
-void Application::onException(ERRF_ExceptionInfo* info, CpuRegisters* regs) {
-    ExceptionData* data  = reinterpret_cast<ExceptionData*>(reinterpret_cast<u8*>(info) - offsetof(ExceptionData, data));
-    Application* context = data->context;
-
-    if(context != NULL) {
-        Logger::info("Application On Exception", "Calling Handle Exception");
-        context->handleException(info, regs);
-    }
-    else {
-        Logger::info("Application On Exception", "Calling Default Handler");
-        DefaultExceptionHandler(info, regs);
-    }
-}
-
 Application::Application(bool consoleEnabled, gfxScreen_t consoleScreen)
     : m_shouldExit(false)
     , m_consoleEnabled(false)
@@ -147,9 +99,8 @@ Application::Application(bool consoleEnabled, gfxScreen_t consoleScreen)
 
     (void)consoleEnabled;
     (void)consoleScreen;
-    if((m_exceptionHandlerStack = allocateHandlerStack(0x3000)) != nullptr) {
-        m_exceptionData.context = this;
-        threadOnException(Application::onException, m_exceptionHandlerStack, &m_exceptionData.data);
+    if((m_exceptionHandlerStack = allocateHandlerStack(0x1000)) != nullptr) {
+        threadOnException(DefaultExceptionHandler, m_exceptionHandlerStack, WRITE_DATA_TO_HANDLER_STACK);
     }
     else {
         Logger::warn("App Init", "Failed to allocate stack for exception handler");
@@ -198,15 +149,21 @@ Application::Application(bool consoleEnabled, gfxScreen_t consoleScreen)
     };
 
     m_client->startQueueWorker();
-
-    if(m_config != nullptr && m_loader != nullptr && m_client != nullptr) {
-        m_mainScreen = std::make_unique<MainScreen>(m_config, m_loader, m_client);
-    }
+    m_mainScreen = std::make_unique<MainScreen>(m_config, m_loader, m_client);
 
     m_prevTime = osGetTime();
 }
 
-void Application::cleanup() {
+Application::~Application() {
+    m_client->stopQueueWorker();
+
+    m_mainScreen.reset();
+    m_client.reset();
+    m_loader.reset();
+    m_config.reset();
+
+    m_connections.disconnect();
+
 #if defined(DEBUG)
 #if !defined(REDIRECT_CONSOLE)
     if(m_consoleInitialized && (!m_consoleEnabled || m_consoleScreen != DefaultScreen)) {
@@ -224,7 +181,6 @@ void Application::cleanup() {
 #endif
 #endif
 
-    C2D_Clay_Exit();
     if(m_clayTopMemory) linearFree(m_clayTopMemory);
     if(m_clayBottomMemory) linearFree(m_clayBottomMemory);
 
@@ -233,22 +189,7 @@ void Application::cleanup() {
     }
 
     m_rendererData.fonts.clear();
-}
-
-Application::~Application() {
-    if(m_exceptionHandlerStack != nullptr) {
-        threadOnException(DefaultExceptionHandler, m_exceptionHandlerStack, WRITE_DATA_TO_HANDLER_STACK);
-    }
-
-    m_mainScreen.reset();
-    m_client.reset();
-    m_loader.reset();
-    m_config.reset();
-
-    // dont wait for client to disconnect until end
-    m_connections.disconnect();
-
-    cleanup();
+    C2D_Clay_Exit();
 
     if(m_exceptionHandlerStack != nullptr) {
         threadOnException(NULL, NULL, NULL);
@@ -297,9 +238,7 @@ void Application::update() {
         m_prevTime = osGetTime();
     }
 
-    if(m_mainScreen != nullptr) {
-        m_mainScreen->update();
-    }
+    m_mainScreen->update();
 
 #if defined(DEBUG) && !defined(REDIRECT_CONSOLE)
     if((kDown & KEY_L || kHeld & KEY_L) && kDown & KEY_X) {
@@ -339,9 +278,7 @@ void Application::render() {
         Clay_SetCurrentContext(m_topContext);
         Clay_BeginLayout();
 
-        if(m_mainScreen != nullptr) {
-            m_mainScreen->renderTop();
-        }
+        m_mainScreen->renderTop();
 
         C2D_TargetClear(m_top, C2D_Color32(0x00, 0x00, 0x00, 0xFF));
         C2D_SceneBegin(m_top);
@@ -353,9 +290,7 @@ void Application::render() {
         Clay_SetCurrentContext(m_bottomContext);
         Clay_BeginLayout();
 
-        if(m_mainScreen != nullptr) {
-            m_mainScreen->renderBottom();
-        }
+        m_mainScreen->renderBottom();
 
         C2D_TargetClear(m_bottom, C2D_Color32(0x00, 0x00, 0x00, 0xFF));
         C2D_SceneBegin(m_bottom);
@@ -432,7 +367,9 @@ void Application::setConsole(bool enabled, gfxScreen_t screen) {
         if(m_consoleScreen != prevScreen) {
             u16 width, height;
             m_console.frameBuffer = reinterpret_cast<u16*>(gfxGetFramebuffer(m_consoleScreen, GFX_LEFT, &width, &height));
-            memset(m_console.frameBuffer, 0, width * height * gspGetBytesPerPixel(GSP_RGB565_OES));
+            if(m_console.frameBuffer != nullptr) {
+                memset(m_console.frameBuffer, 0, width * height * gspGetBytesPerPixel(GSP_RGB565_OES));
+            }
 
             consoleClear();
             return;

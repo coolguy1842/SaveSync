@@ -17,12 +17,19 @@ int main() {
     {
         std::string dirtyStr = strlen(git_dirty_str) != 0 ? std::format("| {} ", git_dirty_str) : "";
         Logger::log("SaveSync v{}.{}.{} | {}({}) {}| Built {}", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, git_branch_str, git_short_hash_str, dirtyStr, build_time_str);
+    }
 
+    int retries = 30;
+    for(int i = 0; i < retries; i++) {
         Application app;
         while(app.loop()) {
             // printf("\x1b[2;1HCPU:     %6.2f%%\x1b[K", C3D_GetProcessingTime() * 6.0f);
             // printf("\x1b[3;1HGPU:     %6.2f%%\x1b[K", C3D_GetDrawingTime() * 6.0f);
             // printf("\x1b[4;1HCmdBuf:  %6.2f%%\x1b[K", C3D_GetCmdBufUsage() * 100.0f);
+        }
+
+        if(aptShouldClose()) {
+            break;
         }
     }
 

@@ -6,16 +6,8 @@
 #include <memory>
 #include <string>
 
+#include <Util/TexWrapper.hpp>
 #include <citro2d.h>
-
-struct Image {
-    Image(C2D_Image image);
-    ~Image();
-
-    C2D_Image operator()() { return image; }
-
-    C2D_Image image;
-};
 
 class SMDH {
 public:
@@ -69,7 +61,7 @@ public:
     const ApplicationTitle& applicationTitle(u8 index) const;
     const Settings& settings() const;
 
-    C2D_Image& bigIcon();
+    std::shared_ptr<TexWrapper> bigTex();
 
     static void copyImageData(const u16* src, u16 srcWidth, u16 srcHeight, u16* dst, u16 dstWidth, u16 dstHeight);
 
@@ -77,7 +69,7 @@ private:
     bool m_valid;
 
     Data m_data;
-    C2D_Image m_bigIcon;
+    std::shared_ptr<TexWrapper> m_bigTex;
 };
 
 #endif

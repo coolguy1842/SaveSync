@@ -1,7 +1,6 @@
 #include <Debug/ExceptionHandler.hpp>
 #include <Util/Worker.hpp>
 #include <algorithm>
-#include <malloc.h>
 #include <stdio.h>
 
 Worker::~Worker() { waitForExit(); }
@@ -64,16 +63,6 @@ void Worker::waitForExit() {
     m_threadStarted  = false;
     m_waitingForExit = false;
     m_joining        = false;
-}
-
-extern const size_t __tdata_align;
-extern const u8 __tdata_lma[];
-extern const u8 __tdata_lma_end[];
-extern u8 __tls_start[];
-extern u8 __tls_end[];
-
-static inline size_t alignTo(const size_t base, const size_t align) {
-    return (base + (align - 1)) & ~(align - 1);
 }
 
 void Worker::onThreadStart(void* data) {

@@ -24,16 +24,6 @@ public:
     void setShouldExit(bool shouldExit = true);
 
 private:
-    struct ExceptionData {
-        Application* context;
-        ERRF_ExceptionData data;
-    };
-
-    void cleanup();
-
-    static void onException(ERRF_ExceptionInfo* excep, CpuRegisters* regs);
-    void handleException(ERRF_ExceptionInfo* excep, CpuRegisters* regs);
-
     void updateURL();
     void tryUpdateClientURL(bool processing);
 
@@ -62,13 +52,9 @@ private:
 
     touchPosition m_prevTouch;
     u64 m_prevTime;
-
     std::string m_pendingURL;
 
-    ExceptionData m_exceptionData;
     void* m_exceptionHandlerStack = nullptr;
-
-    bool m_handlingException = false;
     rocket::scoped_connection_container m_connections;
 
     bool m_consoleEnabled;

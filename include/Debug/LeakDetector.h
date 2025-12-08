@@ -40,7 +40,8 @@ typedef struct leak_list_node {
 } leak_list_node;
 
 void initLeakDetector();
-void exitLeakDetector();
+// bool required for exception handler, mutex deadlocks
+void exitLeakDetector(bool useMutex);
 
 bool isDetectingLeaks();
 void clearLeaks();

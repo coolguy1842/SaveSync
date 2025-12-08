@@ -69,6 +69,7 @@ void Client::queueWorkerMain() {
             loadTitleInfoCache();
 
             if(!serverOnline() || m_requestWorker->waitingForExit()) {
+                svcSleepThread(50 * static_cast<u64>(1e+6));
                 continue;
             }
         }

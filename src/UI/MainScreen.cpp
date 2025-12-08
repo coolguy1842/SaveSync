@@ -143,7 +143,11 @@ void MainScreen::update() {
         return;
     }
 
-    if(kDown & KEY_Y) {
+    if(
+        kDown & KEY_Y &&
+        !(kDown & KEY_L || kHeld & KEY_L) &&
+        !(kDown & KEY_R || kHeld & KEY_R)
+    ) {
         m_settingsScreen->setActive();
         return;
     }
@@ -407,7 +411,7 @@ void MainScreen::ListLayout() {
             titleTextOffset += text.size();
 
             // only render text if in view as the clipping messes up the parent clipping
-            if(i >= m_scroll && i < m_scroll + m_visibleRows) {
+            if(i >= m_renderedScroll && i < m_renderedScroll + m_visibleRows) {
                 CLAY_AUTO_ID({ .clip = { .horizontal = true } }) {
                     CLAY_TEXT(str, CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 14 }));
                 }
@@ -484,6 +488,7 @@ void MainScreen::renderTop() {
             CLAY_TEXT(CLAY_STRING("v1.0.0"), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .wrapMode = CLAY_TEXT_WRAP_NONE }));
         }
 
+        m_renderedScroll = m_scroll;
         CLAY(
             CLAY_ID("Titles"),
             {
@@ -499,7 +504,7 @@ void MainScreen::renderTop() {
                 .clip = {
                     .vertical    = true,
                     .childOffset = {
-                        .y = (m_scroll * -static_cast<float>(SMDH::ICON_HEIGHT + iconGap)),
+                        .y = (m_renderedScroll * -static_cast<float>(SMDH::ICON_HEIGHT + iconGap)),
                     },
                 },
             }
@@ -617,16 +622,17 @@ void MainScreen::renderBottom() {
             }
         }
 
-        std::shared_ptr<Title> title = nullptr;
-        if(m_loader->titles().size() > m_selectedTitle) {
-            title = m_loader->titles()[m_selectedTitle];
-        }
-
-        if(m_loader->isLoadingTitles() || title == nullptr) {
+        std::shared_ptr<Title> title;
+        if(
+            m_loader->isLoadingTitles() ||
+            m_loader->titles().size() <= m_selectedTitle ||
+            m_loader->titles()[m_selectedTitle] == nullptr
+        ) {
             VSPACER();
             goto skipTitle;
         }
 
+        title = m_loader->titles()[m_selectedTitle];
         CLAY(CLAY_ID("Details"), { .layout = { .sizing = { .width = CLAY_SIZING_PERCENT(1.0) }, .padding = CLAY_PADDING_ALL(2) } }) {
             CLAY(CLAY_ID("Info"), { .layout = { .layoutDirection = CLAY_TOP_TO_BOTTOM } }) {
                 CLAY_AUTO_ID({ .layout = { .childGap = 1, .childAlignment = { .y = CLAY_ALIGN_Y_CENTER } } }) {

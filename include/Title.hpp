@@ -7,6 +7,7 @@
 #include <FS/Archive.hpp>
 #include <Util/Mutex.hpp>
 #include <Util/SMDH.hpp>
+#include <Util/TexWrapper.hpp>
 #include <memory>
 #include <optional>
 #include <string>
@@ -117,7 +118,9 @@ private:
     std::string m_shortDescription;
     std::string m_longDescription;
 
+    std::shared_ptr<TexWrapper> m_tex;
     C2D_Image m_icon = { nullptr, nullptr };
+
     u8 m_outOfDate;
 };
 
