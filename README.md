@@ -54,6 +54,7 @@ For CIA format, drag makerom(.exe) into the base folder, and rebuild, for the ba
 - [md5-c](https://github.com/Zunawe/md5-c) Simple and easy to use MD5 hasher.
 - [devkitNix](https://github.com/bandithedoge/devkitNix) Nix flake for devkitPro.
 - [cmake_timestamp](https://github.com/kraiskil/cmake_timestamp) Simple cmake include for time & git info
+- [indigodigi](https://indigodigi.com/) Redesigned Icon & Banner
 - Everyone in the Nintendo Homebrew discord who helped.
 
 <!-- resources -->
