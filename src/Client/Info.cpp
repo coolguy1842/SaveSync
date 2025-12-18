@@ -69,10 +69,11 @@ Result Client::loadTitleInfoCache() {
 
     if(code != CURLE_OK) {
         switch(code) {
-        case CURLE_COULDNT_CONNECT:
         case CURLE_URL_MALFORMAT:
+        case CURLE_COULDNT_CONNECT:
+        case CURLE_COULDNT_RESOLVE_HOST:
         case CURLE_OPERATION_TIMEDOUT:
-        case CURLE_ABORTED_BY_CALLBACK: break;
+        case CURLE_ABORTED_BY_CALLBACK:  break;
         default:
             Logger::warn("Title Info", "Invalid CURL code: {}", static_cast<int>(code));
             break;
