@@ -380,7 +380,7 @@ void Title::saveCache() {
     std::string path = std::format("/3ds/SaveSync/{:X}", m_id);
     sdmc->deleteFile(path);
 
-    if(m_icon.tex == nullptr && !loadSMDHData()) {
+    if((m_icon.tex == nullptr || m_tex == nullptr) && !loadSMDHData()) {
         Logger::error("Save Title Cache", "Failed to load SMDH data");
         return;
     }
@@ -476,6 +476,9 @@ bool Title::loadCache() {
 
         if(m_saveAccessible) loadContainerFiles(SAVE, false, nullptr, false);
         if(m_extdataAccessible) loadContainerFiles(EXTDATA, false, nullptr, false);
+
+        saveLock.release();
+        extdataLock.release();
 
         saveCache();
         return m_icon.tex != nullptr;
