@@ -13,9 +13,9 @@ public:
     enum Processor {
         DEFAULT = -2,
         ALL,
-        ONE,
-        TWO,
-        THREE, // three and four are for new 3ds only
+        APPCORE,
+        SYSCORE, // from libctru: If APT_SetAppCpuTimeLimit is used, it is possible to create a single thread on this core.
+        THREE,   // three and four are for new 3ds only
         FOUR
     };
 

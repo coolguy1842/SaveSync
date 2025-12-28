@@ -60,8 +60,7 @@ private:
     bool m_consoleEnabled;
     gfxScreen_t m_consoleScreen;
 
-#if defined(DEBUG)
-#if !defined(REDIRECT_CONSOLE)
+#ifdef DEBUG
     void setConsole(bool enabled, gfxScreen_t screen);
 
     PrintConsole m_console;
@@ -69,10 +68,6 @@ private:
 
     std::vector<u16> m_dummyTopFramebuffer;
     std::vector<u16> m_dummyBottomFramebuffer;
-#else
-    int m_stdoutDup;
-    int m_stderrDup;
-#endif
 #endif
 };
 

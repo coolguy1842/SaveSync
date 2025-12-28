@@ -26,9 +26,11 @@
                 ];
             };
 
-            packages.default = pkgs.devkitNix.stdenvARM.mkDerivation {
-                name = "SaveSync";
-                version = "1.0.0";
+            packages.default = let    
+                manifest = (pkgs.lib.importJSON ./manifest.json);  
+            in pkgs.devkitNix.stdenvARM.mkDerivation {
+                name = manifest.name;
+                version = manifest.version;
                 src = ./.;
 
                 buildInputs = with pkgs; [ cmake ];

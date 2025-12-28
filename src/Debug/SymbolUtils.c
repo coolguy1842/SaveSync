@@ -4,12 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#ifdef DEBUG
-// if not defined then disable any leak checking
-#define ENABLE_SYMBOLS
-#endif
-
-#ifdef ENABLE_SYMBOLS
+#if defined(DEBUG) && !defined(DISABLE_SYMBOLS)
 
 void* __real_malloc(size_t size);
 void* __real_calloc(size_t num, size_t size);
@@ -26,7 +21,7 @@ static symbol_map_entry* s_symbolMap = NULL;
 void initSymbolMap() {
     romfsInit();
 
-    FILE* fp = fopen("romfs:/SaveSync.lst", "r");
+    FILE* fp = fopen("romfs:/" EXE_NAME ".lst", "r");
     if(fp == NULL) {
         goto exit;
     }

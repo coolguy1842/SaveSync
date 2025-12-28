@@ -92,8 +92,6 @@ Client::Client(std::string url)
     }
 
     numClients++;
-
-    CondVar_Init(&m_requestSignal);
     m_valid = true;
 }
 
@@ -112,7 +110,7 @@ Client::~Client() {
     m_valid = false;
 
     m_requestWorker->signalShouldExit();
-    CondVar_Broadcast(&m_requestSignal);
+    m_requestCondVar.broadcast();
 
     m_requestWorker->waitForExit();
     m_requestWorker.reset();

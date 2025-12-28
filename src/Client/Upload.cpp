@@ -16,6 +16,8 @@ Result Client::noFilesUploadError() { return MAKERESULT(RL_TEMPORARY, RS_CANCELE
 Result Client::emptyUploadError() { return MAKERESULT(RL_TEMPORARY, RS_CANCELED, RM_APPLICATION, RD_ALREADY_EXISTS); }
 
 Result Client::beginUpload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::vector<std::string>& requestedFiles) {
+    Logger::info("Upload Begin", "Starting upload for {:X}, Container: {}", title->id(), getContainerName(container));
+
     std::vector<FileInfo> files = title->getContainerFiles(container);
     if(files.size() <= 0) {
         Logger::warn("Upload Begin", "No files found for {}", getContainerName(container));
@@ -134,6 +136,8 @@ Result Client::beginUpload(std::shared_ptr<Title> title, Container container, st
 }
 
 Result Client::uploadFile(const std::string& ticket, std::shared_ptr<File> file, const std::string& path) {
+    Logger::info("Upload File", "Ticket: {} - Uploading {}", ticket, path);
+
     u64 fileSize = file->size();
     if(file->size() == U64_MAX) {
         Logger::warn("Upload File", "Failed to get file size: {}", path);
@@ -189,6 +193,8 @@ Result Client::uploadFile(const std::string& ticket, std::shared_ptr<File> file,
 }
 
 Result Client::endUpload(const std::string& ticket) {
+    Logger::info("Upload End", "Ticket: {} - Ending", ticket);
+
     CURLEasy easy(CURLEasyOptions{
         .url            = std::format("{}/v1/upload/{}/end", url(), ticket),
         .method         = PUT,
@@ -217,6 +223,8 @@ Result Client::endUpload(const std::string& ticket) {
 }
 
 Result Client::cancelUpload(const std::string& ticket) {
+    Logger::info("Upload Cancel", "Ticket: {} - Cancelling", ticket);
+
     CURLEasy easy(CURLEasyOptions{
         .url            = std::format("{}/v1/upload/{}", url(), ticket),
         .method         = DELETE,
@@ -315,13 +323,17 @@ Result Client::upload(std::shared_ptr<Title> title, Container container) {
         goto cancelExit;
     }
 
-    auto infoLock = m_cachedTitleInfoMutex.lock();
-    switch(container) {
-    case SAVE:    m_cachedTitleInfo[title->id()].save = title->getContainerFiles(container); break;
-    case EXTDATA: m_cachedTitleInfo[title->id()].extdata = title->getContainerFiles(container); break;
-    default:      break;
+    {
+        auto infoLock = m_cachedTitleInfoMutex.lock();
+        switch(container) {
+        case SAVE:    m_cachedTitleInfo[title->id()].save = title->getContainerFiles(container); break;
+        case EXTDATA: m_cachedTitleInfo[title->id()].extdata = title->getContainerFiles(container); break;
+        default:      break;
+        }
     }
 
-    title->setOutOfDate(title->outOfDate() ^ container);
+    titleCacheChangedSignal();
+    titleInfoChangedSignal(title->id(), m_cachedTitleInfo[title->id()]);
+
     return RL_SUCCESS;
 }

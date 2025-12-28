@@ -2,21 +2,23 @@
 #include <clay.h>
 
 #include <Application.hpp>
+#include <Cache.hpp>
+#include <Client.hpp>
 #include <Debug/ExceptionHandler.hpp>
 #include <Debug/LeakDetector.h>
 #include <Debug/LeakViewerApplication.hpp>
 #include <Debug/Logger.hpp>
 #include <Debug/SymbolUtils.h>
-#include <fstream>
 #include <malloc.h>
 #include <memory>
+#include <ptmplays.h>
 #include <timestamp.h>
 
 int main() {
     // prevent from showing in leak list
     {
         std::string dirtyStr = strlen(git_dirty_str) != 0 ? std::format("| {} ", git_dirty_str) : "";
-        Logger::log("SaveSync v{}.{}.{} | {}({}) {}| Built {}", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, git_branch_str, git_short_hash_str, dirtyStr, build_time_str);
+        Logger::log("{} v{}.{}.{} | {}({}) {}| Built {}", EXE_NAME, VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, git_branch_str, git_short_hash_str, dirtyStr, build_time_str);
 
         Application app;
         while(app.loop()) {
