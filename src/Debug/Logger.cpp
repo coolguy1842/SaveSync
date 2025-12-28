@@ -64,7 +64,7 @@ std::shared_ptr<File> Logger::openLogFile() {
 
     if(!s_dirInitialized) {
         s_dirInitialized = true;
-        if(!sdmc->mkdir(u"/3ds/SaveSync/logs", 0, true)) {
+        if(!sdmc->mkdir(u"/3ds/" EXE_NAME "/logs", 0, true)) {
             Logger::error("Logger File", "Failed to create log folder");
             s_dirExists = false;
 
@@ -72,7 +72,7 @@ std::shared_ptr<File> Logger::openLogFile() {
         }
 
         RenameEntry renames[maxLogs - 1];
-        std::shared_ptr<Directory> dir = sdmc->openDirectory(u"/3ds/SaveSync/logs");
+        std::shared_ptr<Directory> dir = sdmc->openDirectory(u"/3ds/" EXE_NAME "/logs");
 
         for(const auto& entry : *dir) {
             if(!entry->isFile()) {
@@ -126,7 +126,7 @@ std::shared_ptr<File> Logger::openLogFile() {
         }
     }
 
-    s_file = sdmc->openFile("/3ds/SaveSync/logs/log.txt", FS_OPEN_CREATE | FS_OPEN_READ | FS_OPEN_WRITE, 0);
+    s_file = sdmc->openFile("/3ds/" EXE_NAME "/logs/log.txt", FS_OPEN_CREATE | FS_OPEN_READ | FS_OPEN_WRITE, 0);
     if(s_file != nullptr && !s_file->valid()) {
         s_file = nullptr;
     }

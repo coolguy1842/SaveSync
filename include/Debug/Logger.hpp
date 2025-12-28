@@ -56,7 +56,7 @@ private:
     template<typename... Args>
     static inline void logMessageLM(Level level, std::string module, format_string<Args...> fmt, Args&&... args) {
         fileLogMessage(std::format("{} [{}] {}\n", levelName(level), module, std::format(fmt, std::forward<Args>(args)...)));
-#ifdef DEBUG
+#if defined(DEBUG)
         printf("%s%s%s [%s] %s\n", levelColor(level), levelName(level), resetColor, module.c_str(), std::format(fmt, std::forward<Args>(args)...).c_str());
 #endif
     }
@@ -64,7 +64,7 @@ private:
     template<typename... Args>
     static inline void logMessageL(Level level, format_string<Args...> fmt, Args&&... args) {
         fileLogMessage(std::format("{} {}\n", levelName(level), std::format(fmt, std::forward<Args>(args)...)));
-#ifdef DEBUG
+#if defined(DEBUG)
         printf("%s%s%s %s\n", levelColor(level), levelName(level), resetColor, std::format(fmt, std::forward<Args>(args)...).c_str());
 #endif
     }
@@ -72,7 +72,7 @@ private:
     template<typename... Args>
     static inline void logMessageM(std::string module, format_string<Args...> fmt, Args&&... args) {
         fileLogMessage(std::format("[{}] {}\n", module.c_str(), std::format(fmt, std::forward<Args>(args)...)));
-#ifdef DEBUG
+#if defined(DEBUG)
         printf("[%s] %s\n", module.c_str(), std::format(fmt, std::forward<Args>(args)...).c_str());
 #endif
     }
@@ -80,7 +80,7 @@ private:
     template<typename... Args>
     static inline void logMessage(format_string<Args...> fmt, Args&&... args) {
         fileLogMessage(std::format(fmt, std::forward<Args>(args)...) + "\n");
-#ifdef DEBUG
+#if defined(DEBUG)
         printf("%s\n", std::format(fmt, std::forward<Args>(args)...).c_str());
 #endif
     }

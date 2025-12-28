@@ -50,6 +50,8 @@ public:
     ~Title();
 
     bool valid() const;
+    // used by titleloader for game cards, DO NOT USE MANUALLY
+    void setInvalid();
 
     u64 id() const;
     u32 lowID() const;

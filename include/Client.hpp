@@ -5,6 +5,7 @@
 #include <curl/curl.h>
 
 #include <Title.hpp>
+#include <Util/CondVar.hpp>
 #include <Util/Mutex.hpp>
 #include <Util/Worker.hpp>
 #include <atomic>
@@ -152,9 +153,7 @@ private:
     std::set<QueuedRequest> m_stagingRequestQueue;
 
     std::optional<QueuedRequest> m_activeRequest;
-
-    Mutex m_requestMutex;
-    CondVar m_requestSignal;
+    ConditionVariable m_requestCondVar;
 
     Mutex m_cachedTitleInfoMutex;
 

@@ -369,6 +369,7 @@ void SettingsScreen::renderBottom() {
                 },
             }
         ) {
+            // clang-format off
 #define OPTION(id, display, ...)                                                                                     \
     CLAY_AUTO_ID({                                                                                                   \
         .layout = {                                                                                                  \
@@ -398,6 +399,7 @@ void SettingsScreen::renderBottom() {
                                                                                                                      \
         __VA_ARGS__                                                                                                  \
     }
+            // clang-format on
 
             OPTION("URL", "Server URL", {
                 CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_PERCENT(0.8) }, .childAlignment = { .x = CLAY_ALIGN_X_CENTER } }, .clip = { .horizontal = true } }) {

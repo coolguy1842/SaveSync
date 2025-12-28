@@ -10,11 +10,6 @@
 #include <string.h>
 #include <unwind.h>
 
-#ifdef DEBUG
-// if not defined then disable any leak checking
-#define ENABLE_LEAK_CHECK
-#endif
-
 void* __real_malloc(size_t size);
 void* __real_calloc(size_t num, size_t size);
 void* __real_realloc(void* ptr, size_t size);
@@ -25,7 +20,7 @@ char* __real_strndup(const char* str, size_t max);
 void __real_free(void* ptr);
 int __real_main();
 
-#ifdef ENABLE_LEAK_CHECK
+#if defined(DEBUG) && !defined(DISABLE_LEAK_CHECK)
 
 static bool initialized          = false;
 static leak_list_node* beginNode = NULL;

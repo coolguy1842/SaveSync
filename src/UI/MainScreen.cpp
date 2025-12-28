@@ -483,9 +483,14 @@ void MainScreen::renderTop() {
                 .backgroundColor = Theme::Surface2(),
             }
         ) {
-            CLAY_TEXT(CLAY_STRING("SaveSync"), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .wrapMode = CLAY_TEXT_WRAP_NONE }));
+            CLAY_TEXT(CLAY_STRING(EXE_NAME), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .wrapMode = CLAY_TEXT_WRAP_NONE }));
             HSPACER();
-            CLAY_TEXT(CLAY_STRING("v1.0.0"), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .wrapMode = CLAY_TEXT_WRAP_NONE }));
+
+#define _STRINGIFY(a) #a
+#define STRINGIFY(a)  _STRINGIFY(a)
+            CLAY_TEXT(CLAY_STRING("v" STRINGIFY(VERSION_MAJOR) "." STRINGIFY(VERSION_MINOR) "." STRINGIFY(VERSION_PATCH)), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .wrapMode = CLAY_TEXT_WRAP_NONE }));
+#undef _STRINGIFY
+#undef STRINGIFY
         }
 
         m_renderedScroll = m_scroll;

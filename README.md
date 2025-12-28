@@ -1,4 +1,5 @@
-# SaveSync
+![Banner]
+<br>
 ~~Cloud~~ Locally hosted save/extdata backup, and synchronisation tool for the 3DS.
 
 ## Usage
@@ -22,8 +23,6 @@ While uploading/downloading, the program will disable home, sleep, and closing t
 The most recent 5 logs are stored in /3ds/SaveSync/logs. If the program was compiled in debug mode, the console can be toggled with L+X, and the screen swapped with R+X. Debug mode also shows a list of potential memory leaks when closing, shown after pressing the start button.
 You can print the profiler with L+Y, or R+Y, L will toggle the console on if it isn't active.
 
-Additionally if you build with -DREDIRECT_CONSOLE it will redirect stdout to 3dslink.
-
 ## Building
 ```sh
 git clone https://github.com/coolguy1842/SaveSync --recursive
@@ -38,9 +37,9 @@ For CIA format, drag makerom(.exe) into the base folder, and rebuild, for the ba
 
 ## TODO
 - [ ] Upgrade Server API
-- [ ] Load Game Catridges
-- [ ] Add Button to Cancel Upload/Download
+- [ ] Second Confirm for Downloading, with Don't Show Again
 - [ ] Use Compression with HTTP
+- [ ] Better Caching System
 
 ## Thanks To
 - [Checkpoint](https://github.com/BernardoGiordano/Checkpoint) Design inspiration, and code reference.
@@ -58,5 +57,6 @@ For CIA format, drag makerom(.exe) into the base folder, and rebuild, for the ba
 - Everyone in the Nintendo Homebrew discord who helped.
 
 <!-- resources -->
+[Banner]: assets/banner.png
 [Preview Grid]: images/gridPreview.png
 [Preview List]: images/listPreview.png

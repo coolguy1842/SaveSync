@@ -35,6 +35,8 @@ Client::DownloadAction::Action Client::DownloadAction::actionValue(std::string t
 Result Client::emptyDownloadError() { return MAKERESULT(RL_TEMPORARY, RS_CANCELED, RM_APPLICATION, RD_ALREADY_EXISTS); }
 
 Result Client::beginDownload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::vector<Client::DownloadAction>& fileActions) {
+    Logger::info("Download Begin", "Starting Download for {:X}, Container: {}", title->id(), getContainerName(container));
+
     std::vector<FileInfo> files = title->getContainerFiles(container);
 
     rapidjson::StringBuffer buf;
@@ -164,6 +166,8 @@ Result Client::beginDownload(std::shared_ptr<Title> title, Container container, 
 }
 
 Result Client::downloadFile(const std::string& ticket, std::shared_ptr<File> file, const std::string& path) {
+    Logger::info("Download File", "Ticket: {} - Downloading {}", ticket, path);
+
     u64 fileWriteOffset = 0;
     CURLEasy easy;
 
@@ -215,6 +219,8 @@ Result Client::downloadFile(const std::string& ticket, std::shared_ptr<File> fil
 }
 
 Result Client::endDownload(const std::string& ticket) {
+    Logger::info("Download End", "Ticket: {} - Ending", ticket);
+
     CURLEasy easy(CURLEasyOptions{
         .url            = std::format("{}/v1/download/{}", url(), ticket),
         .method         = DELETE,
@@ -226,11 +232,11 @@ Result Client::endDownload(const std::string& ticket) {
     setOnline(code == CURLE_OK);
 
     if(code != CURLE_OK) {
-        Logger::warn("Download Cancel", "Invalid CURL code: {}", static_cast<int>(code));
+        Logger::warn("Download End", "Invalid CURL code: {}", static_cast<int>(code));
         return performFailError();
     }
     else if(easy.statusCode() != 204) {
-        Logger::warn("Download Cancel", "Invalid status code: {} != 204", easy.statusCode());
+        Logger::warn("Download End", "Invalid status code: {} != 204", easy.statusCode());
         return invalidStatusCodeError();
     }
 
@@ -460,7 +466,7 @@ Result Client::download(std::shared_ptr<Title> title, Container container) {
         title->setContainerFiles(newFiles, container);
     }
 
-    title->setOutOfDate(title->outOfDate() ^ container);
+    title->setOutOfDate(title->outOfDate() & ~container);
     if(R_FAILED(res = endDownload(ticket))) {
         Logger::warn("Download", "Failed to end download");
     }

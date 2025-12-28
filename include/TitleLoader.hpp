@@ -13,6 +13,9 @@
 #include <stack>
 #include <vector>
 
+#include <Util/CondVar.hpp>
+#include <Util/Mutex.hpp>
+#include <Util/ScopedService.hpp>
 #include <Util/Worker.hpp>
 
 class TitleLoader {
@@ -36,10 +39,12 @@ public:
     rocket::thread_safe_signal<void(const std::shared_ptr<Title>&, const Container&)> titleHashedSignal;
 
 private:
+    bool loadGameCardTitle();
     void loadSDTitles(u32 numTitles = 0);
 
-    void hashWorkerMain();
+    void cardWorkerMain();
     void loadWorkerMain();
+    void hashWorkerMain();
 
 private:
     Mutex m_titlesMutex;
@@ -51,13 +56,20 @@ private:
         FS_CardType cardType;
     };
 
-    bool m_SDTitlesLoaded;
-
     size_t m_totalTitles               = 0;
     std::atomic<size_t> m_titlesLoaded = 0;
 
+    // title id for last pinged game cartridge
+    u64 m_lastCardID;
+
+    // watches for changes in the game card
+    std::unique_ptr<Worker> m_cardWorker;
+
     std::unique_ptr<Worker> m_loaderWorker;
     std::unique_ptr<Worker> m_hashWorker;
+
+    ConditionVariable m_condVar;
+    Services::AM p_AM;
 };
 
 #endif

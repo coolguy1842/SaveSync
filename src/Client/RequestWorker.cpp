@@ -40,10 +40,12 @@ void Client::stopQueueWorker() {
 }
 
 void Client::queueAction(QueuedRequest request) {
-    auto lock = m_requestMutex.lock();
+    auto lock = m_requestCondVar.mutex().lock();
     if(m_stagingRequestQueue.emplace(request).second) {
         sendQueueChangedSignal();
-        CondVar_Signal(&m_requestSignal);
+
+        lock.release();
+        m_requestCondVar.broadcast();
     }
 }
 
@@ -74,18 +76,15 @@ void Client::queueWorkerMain() {
             }
         }
 
-        {
-            auto lock = m_requestMutex.lock();
-            if(m_requestQueue.empty()) {
-                constexpr s64 maxWaitMS = 2500;
-                checkOnline             = CondVar_WaitTimeout(&m_requestSignal, m_requestMutex.native_handle(), maxWaitMS * static_cast<s64>(1e+6)) != 0;
+        if(m_requestQueue.empty()) {
+            constexpr s64 maxWaitMS = 2500;
+            checkOnline             = m_requestCondVar.wait(maxWaitMS * static_cast<s64>(1e+6)) != 0;
 
-                if(m_requestWorker->waitingForExit()) {
-                    return;
-                }
-                else if(!wifiEnabled()) {
-                    continue;
-                }
+            if(m_requestWorker->waitingForExit()) {
+                return;
+            }
+            else if(!wifiEnabled()) {
+                continue;
             }
         }
 
@@ -93,9 +92,10 @@ void Client::queueWorkerMain() {
             queueAction({ .type = QueuedRequest::RELOAD_TITLE_CACHE });
         }
 
-        auto lock = m_requestMutex.lock();
-        m_requestQueue.swap(m_stagingRequestQueue);
-        lock.release();
+        {
+            auto lock = m_requestCondVar.mutex().lock();
+            m_requestQueue.swap(m_stagingRequestQueue);
+        }
 
         for(auto it = m_requestQueue.begin(); it != m_requestQueue.end() && serverOnline() && !m_requestWorker->waitingForExit();) {
             const QueuedRequest& request = *it;

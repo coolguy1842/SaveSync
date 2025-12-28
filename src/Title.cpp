@@ -62,11 +62,11 @@ Title::Title(u64 id, FS_MediaType mediaType, FS_CardType cardType)
         }
     }
 
+    m_valid = true;
     if(!loadCache()) {
+        m_valid = false;
         return;
     }
-
-    m_valid = true;
 }
 
 Title::~Title() {
@@ -75,6 +75,8 @@ Title::~Title() {
 }
 
 bool Title::valid() const { return m_valid; }
+void Title::setInvalid() { m_valid = false; }
+
 FS_MediaType Title::mediaType() const { return m_mediaType; }
 FS_CardType Title::cardType() const { return m_cardType; }
 
@@ -91,6 +93,8 @@ C2D_Image* Title::icon() { return &m_icon; }
 
 // from checkpoint
 u32 Title::extdataID() const {
+    if(!m_valid) return 0;
+
     u32 low = lowID();
     switch(low) {
     case 0x00055E00: return 0x055D; // Pokémon Y
@@ -113,6 +117,8 @@ u32 Title::extdataID() const {
 }
 
 std::shared_ptr<Archive> Title::openContainer(Container container) const {
+    if(!m_valid) return nullptr;
+
     switch(container) {
     case SAVE:
         if(!m_saveAccessible) {
@@ -138,6 +144,8 @@ Mutex& Title::containerMutex(Container container) {
 }
 
 bool Title::containerAccessible(Container container) const {
+    if(!m_valid) return false;
+
     switch(container) {
     case SAVE:    return m_saveAccessible;
     case EXTDATA: return m_extdataAccessible;
@@ -146,6 +154,8 @@ bool Title::containerAccessible(Container container) const {
 }
 
 Result Title::deleteSecureSaveValue() {
+    if(!m_valid) return MAKERESULT(RL_PERMANENT, RS_INVALIDSTATE, RM_APPLICATION, RD_INVALID_SELECTION);
+
     if(m_cardType != CARD_CTR) {
         Logger::warn("Title", "Can't delete secure save value for non CTR title: {:X}", m_id);
         return MAKERESULT(RL_PERMANENT, RS_NOTSUPPORTED, RM_APPLICATION, RD_NOT_FOUND);
@@ -158,6 +168,8 @@ Result Title::deleteSecureSaveValue() {
 
 void Title::reloadContainerFiles(Container container) { loadContainerFiles(container); }
 void Title::resetContainerFiles(Container container) {
+    if(!m_valid) return;
+
     switch(container) {
     case SAVE:    m_saveFiles.clear(); break;
     case EXTDATA: m_extdataFiles.clear(); break;
@@ -168,6 +180,8 @@ void Title::resetContainerFiles(Container container) {
 }
 
 std::vector<FileInfo> Title::getContainerFiles(Container container) const {
+    if(!m_valid) return {};
+
     switch(container) {
     case SAVE:    return m_saveFiles;
     case EXTDATA: return m_extdataFiles;
@@ -183,6 +197,8 @@ std::vector<FileInfo>& Title::containerFiles(Container container) {
 }
 
 void Title::setContainerFiles(std::vector<FileInfo>& files, Container container) {
+    if(!m_valid) return;
+
     switch(container) {
     case SAVE:
         m_saveFiles = files;
@@ -201,6 +217,8 @@ void Title::setContainerFiles(std::vector<FileInfo>& files, Container container)
 }
 
 void Title::loadContainerFiles(Container container, bool cache, std::shared_ptr<Archive> archive, bool shouldLock) {
+    if(!m_valid) return;
+
     ScopedLock lock = ScopedLock(containerMutex(container), true);
     if(shouldLock) {
         lock.lock();
@@ -284,6 +302,8 @@ void Title::loadContainerFiles(Container container, bool cache, std::shared_ptr<
 }
 
 void Title::hashContainer(Container container) {
+    if(!m_valid) return;
+
     auto lock = containerMutex(container).lock();
 
     std::shared_ptr<Archive> archive = openContainer(container);
@@ -341,9 +361,12 @@ void Title::hashContainer(Container container) {
 constexpr std::string formatFileInfo(Container container, FileInfo file) {
     return std::format("{}{}{}:{}\n", container == SAVE ? 's' : 'e', file.size, file.path, file.hash.value_or(""));
 }
+
 constexpr size_t versionSize = 3;
 
 bool Title::loadSMDHData() {
+    if(!m_valid) return false;
+
     std::unique_ptr<SMDH> smdh = std::make_unique<SMDH>(m_id, m_mediaType);
     if(!smdh->valid()) {
         Logger::warn("Title", "No SMDH data for: {:X}", m_id);
@@ -363,6 +386,7 @@ bool Title::loadSMDHData() {
 }
 
 void Title::saveCache() {
+    if(!m_valid || m_mediaType != MEDIATYPE_SD) return;
     PROFILE_SCOPE("Save Title Cache");
 
     auto lock                     = m_cacheMutex.lock();
@@ -372,12 +396,12 @@ void Title::saveCache() {
         return;
     }
 
-    if(!sdmc->mkdir(u"/3ds/SaveSync", 0, true)) {
-        Logger::error("Save Title Cache", "Failed to create SaveSync directory");
+    if(!sdmc->mkdir(u"/3ds/" EXE_NAME, 0, true)) {
+        Logger::error("Save Title Cache", "Failed to create data directory");
         return;
     }
 
-    std::string path = std::format("/3ds/SaveSync/{:X}", m_id);
+    std::string path = std::format("/3ds/" EXE_NAME "/{:X}", m_id);
     sdmc->deleteFile(path);
 
     if((m_icon.tex == nullptr || m_tex == nullptr) && !loadSMDHData()) {
@@ -429,6 +453,16 @@ void Title::saveCache() {
 }
 
 bool Title::loadCache() {
+    if(!m_valid) return false;
+
+    // TODO: should use cached smdh, cant rely on cached container files as it could be a different cart
+    if(m_mediaType != MEDIATYPE_SD) {
+        if(m_saveAccessible) loadContainerFiles(SAVE);
+        if(m_extdataAccessible) loadContainerFiles(EXTDATA);
+
+        return loadSMDHData();
+    }
+
     struct TitleData {
         char shortDesc[sizeof(SMDH::ApplicationTitle::shortDescription) / sizeof(u16)], longDesc[sizeof(SMDH::ApplicationTitle::longDescription) / sizeof(u16)];
         u16 texData[SMDH::ICON_WIDTH * SMDH::ICON_HEIGHT];
@@ -447,7 +481,7 @@ bool Title::loadCache() {
         goto invalidSDMC;
     }
 
-    file = sdmc->openFile(std::format("/3ds/SaveSync/{:X}", m_id), FS_OPEN_READ, 0);
+    file = sdmc->openFile(std::format("/3ds/" EXE_NAME "/{:X}", m_id), FS_OPEN_READ, 0);
     if(file == nullptr || !file->valid()) {
         Logger::info("Load Cached Title Files", "Cache doesn't exist for {:X}, creating", m_id);
 
@@ -657,5 +691,13 @@ bool Title::loadCache() {
     return true;
 }
 
-u8 Title::outOfDate() const { return m_outOfDate; }
-void Title::setOutOfDate(u8 outOfDate) { m_outOfDate = outOfDate; }
+u8 Title::outOfDate() const {
+    if(!m_valid) return 0;
+    return m_outOfDate;
+}
+
+void Title::setOutOfDate(u8 outOfDate) {
+    if(!m_valid) return;
+
+    m_outOfDate = outOfDate;
+}

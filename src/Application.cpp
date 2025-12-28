@@ -90,7 +90,7 @@ Application::Application(bool consoleEnabled, gfxScreen_t consoleScreen)
     : m_shouldExit(false)
     , m_consoleEnabled(false)
     , m_consoleScreen(DefaultScreen)
-#if defined(DEBUG) && !defined(REDIRECT_CONSOLE)
+#if defined(DEBUG)
     , m_dummyTopFramebuffer(TOP_SCREEN_WIDTH * TOP_SCREEN_HEIGHT)
     , m_dummyBottomFramebuffer(BOTTOM_SCREEN_WIDTH * BOTTOM_SCREEN_HEIGHT)
 #endif
@@ -108,13 +108,7 @@ Application::Application(bool consoleEnabled, gfxScreen_t consoleScreen)
 
     C2D_Clay_Init();
 
-#if defined(DEBUG)
-#if defined(REDIRECT_CONSOLE)
-    m_stdoutDup = dup(STDOUT_FILENO);
-    m_stderrDup = dup(STDERR_FILENO);
-
-    link3dsStdio();
-#else
+#ifdef DEBUG
     if(consoleEnabled) {
         setConsole(consoleEnabled, consoleScreen);
     }
@@ -122,7 +116,6 @@ Application::Application(bool consoleEnabled, gfxScreen_t consoleScreen)
         setConsole(true, DefaultScreen);
         setConsole(false, DefaultScreen);
     }
-#endif
 #endif
 
     m_top    = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
@@ -167,21 +160,11 @@ Application::~Application() {
 
     m_connections.disconnect();
 
-#if defined(DEBUG)
-#if !defined(REDIRECT_CONSOLE)
+#ifdef DEBUG
     if(m_consoleInitialized && (!m_consoleEnabled || m_consoleScreen != DefaultScreen)) {
         // swap to top framebuffer to skip any data read errors
         setConsole(true, DefaultScreen);
     }
-#else
-    if(dup2(stdoutDup, STDOUT_FILENO) >= 0) {
-        close(stdoutDup);
-    }
-
-    if(dup2(stderrDup, STDERR_FILENO) >= 0) {
-        close(stdoutDup);
-    }
-#endif
 #endif
 
     if(m_clayTopMemory) linearFree(m_clayTopMemory);
@@ -243,7 +226,7 @@ void Application::update() {
 
     m_mainScreen->update();
 
-#if defined(DEBUG) && !defined(REDIRECT_CONSOLE)
+#if defined(DEBUG)
     if((kDown & KEY_L || kHeld & KEY_L) && kDown & KEY_X) {
         setConsole(!m_consoleEnabled, m_consoleScreen);
     }
@@ -322,7 +305,7 @@ bool Application::loop() {
 bool Application::shouldExit() const { return m_shouldExit; }
 void Application::setShouldExit(bool shouldExit) { m_shouldExit = shouldExit; }
 
-#if defined(DEBUG) && !defined(REDIRECT_CONSOLE)
+#if defined(DEBUG)
 void resetScreen(gfxScreen_t screen) {
     gfxSetScreenFormat(screen, GSP_BGR8_OES);
     gfxSetDoubleBuffering(screen, true);
