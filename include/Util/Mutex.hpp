@@ -10,6 +10,7 @@ public:
     ScopedLock(const ScopedLock&)            = delete;
     ScopedLock& operator=(const ScopedLock&) = delete;
 
+    ScopedLock();
     ScopedLock(Mutex& mutex, bool deferred = false);
     ScopedLock(Mutex* mutex, bool deferred = false);
 

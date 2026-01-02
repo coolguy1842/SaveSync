@@ -44,7 +44,6 @@ MainScreen::MainScreen(std::shared_ptr<Config> config, std::shared_ptr<TitleLoad
     , m_client(client)
     , m_settingsScreen(std::make_unique<SettingsScreen>(config))
     , m_selectedTitle(0) {
-    // TODO: fix unmapped read with signals
     m_client->networkQueueChangedSignal.connect<&MainScreen::updateQueuedText>(this);
     m_client->requestStatusChangedSignal.connect<&MainScreen::updateRequestStatusText>(this);
     m_client->requestFailedSignal.connect<&MainScreen::onClientRequestFailed>(this);
@@ -201,7 +200,7 @@ void MainScreen::update() {
 
     if(m_updateTitleInfo) {
         if(title != nullptr) {
-            m_titleText = title->longDescription();
+            m_titleText = title->name();
             m_idText    = std::format("ID: {:08X} ({})", title->lowID(), title->productCode());
 
             const char* mediaType;
@@ -399,7 +398,7 @@ void MainScreen::ListLayout() {
             },
             .backgroundColor = (i == m_selectedTitle ? Theme::Surface1() : Theme::Surface0()),
         }) {
-            const std::string& text = title->longDescription();
+            const std::string& text = title->name();
             Clay_String str         = { .isStaticallyAllocated = false, .length = static_cast<int32_t>(text.size()), .chars = m_titleTexts.c_str() + titleTextOffset };
 
             if(m_titleTexts.size() < titleTextOffset + text.size()) {
@@ -448,9 +447,8 @@ void MainScreen::renderTop() {
         m_loadedString = { .isStaticallyAllocated = false, .length = static_cast<int32_t>(m_loadedText.size()), .chars = m_loadedText.c_str() };
 
         m_titleTexts.clear();
-
         for(auto title : m_loader->titles()) {
-            m_titleTexts += title->longDescription();
+            m_titleTexts += title->name();
         }
 
         m_prevLoadedTitles = loadedTitles;
@@ -796,7 +794,7 @@ void MainScreen::renderBottom() {
                             .color = color,
                             .width = CLAY_BORDER_OUTSIDE(2),
                         },
-                    },
+                    }
                 ) {
                     CLAY(
                         CLAY_ID("RequestProgress"),

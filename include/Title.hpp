@@ -17,6 +17,8 @@
 #define TITLE_ICON_WIDTH  48.0f
 #define TITLE_ICON_HEIGHT 48.0f
 
+#define TITLE_CACHE_VER "002"
+
 enum Container {
     SAVE    = 0b01,
     EXTDATA = 0b10
@@ -65,9 +67,7 @@ public:
     FS_MediaType mediaType() const;
     FS_CardType cardType() const;
 
-    std::string shortDescription() const;
-    std::string longDescription() const;
-
+    std::string name() const;
     C2D_Image* icon();
 
     std::shared_ptr<Archive> openContainer(Container container) const;
@@ -117,7 +117,6 @@ private:
     std::vector<FileInfo> m_saveFiles;
     std::vector<FileInfo> m_extdataFiles;
 
-    std::string m_shortDescription;
     std::string m_longDescription;
 
     std::shared_ptr<TexWrapper> m_tex;

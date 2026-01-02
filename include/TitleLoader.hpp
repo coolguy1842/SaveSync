@@ -9,6 +9,7 @@
 #include <atomic>
 #include <list>
 #include <memory>
+#include <optional>
 #include <rocket.hpp>
 #include <stack>
 #include <vector>
@@ -46,6 +47,8 @@ private:
     void loadWorkerMain();
     void hashWorkerMain();
 
+    bool gameCardSupported();
+
 private:
     Mutex m_titlesMutex;
     std::vector<std::shared_ptr<Title>> m_titles;
@@ -64,6 +67,7 @@ private:
 
     // watches for changes in the game card
     std::unique_ptr<Worker> m_cardWorker;
+    std::optional<bool> m_cardSupported;
 
     std::unique_ptr<Worker> m_loaderWorker;
     std::unique_ptr<Worker> m_hashWorker;

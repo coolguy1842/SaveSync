@@ -90,9 +90,9 @@ void Config::save() {
 
 std::shared_ptr<File> Config::openFile(u32 flags) {
     std::shared_ptr<Archive> sdmc = Archive::sdmc();
-    if(sdmc == nullptr || !sdmc->valid() || !sdmc->mkdir(u"/3ds/" EXE_NAME, 0, true)) {
+    if(sdmc == nullptr || !sdmc->valid() || !sdmc->mkdir(DATA_DIRECTORY_U, 0, true)) {
         return nullptr;
     }
 
-    return sdmc->openFile(u"/3ds/" EXE_NAME "/config", flags, 0);
+    return sdmc->openFile(DATA_DIRECTORY "/config", flags, 0);
 }
