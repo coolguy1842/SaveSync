@@ -1,20 +1,28 @@
 #include <Util/Mutex.hpp>
 #include <stdio.h>
 
+ScopedLock::ScopedLock()
+    : m_mutex(nullptr)
+    , m_locked(false) {}
+
 ScopedLock::ScopedLock(Mutex& mutex, bool deffered)
     : m_mutex(&mutex)
     , m_locked(false) {
-    if(!deffered) {
-        lock();
+    if(deffered || m_mutex == nullptr) {
+        return;
     }
+
+    lock();
 }
 
 ScopedLock::ScopedLock(Mutex* mutex, bool deffered)
     : m_mutex(mutex)
     , m_locked(false) {
-    if(!deffered) {
-        lock();
+    if(deffered || m_mutex == nullptr) {
+        return;
     }
+
+    lock();
 }
 
 ScopedLock::~ScopedLock() {
@@ -33,10 +41,13 @@ void ScopedLock::lock() {
 }
 
 void ScopedLock::release() {
-    if(m_locked) {
-        m_mutex->unsafe_unlock();
+    if(m_mutex == nullptr || !m_locked) {
         m_locked = false;
+        return;
     }
+
+    m_mutex->unsafe_unlock();
+    m_locked = false;
 }
 
 Mutex::Mutex() { LightLock_Init(&m_lock); }

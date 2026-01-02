@@ -87,8 +87,7 @@ u32 Title::uniqueID() const { return (lowID() >> 8); }
 
 const char* Title::productCode() const { return m_productCode; }
 
-std::string Title::shortDescription() const { return m_shortDescription; }
-std::string Title::longDescription() const { return m_longDescription; }
+std::string Title::name() const { return m_longDescription; }
 C2D_Image* Title::icon() { return &m_icon; }
 
 // from checkpoint
@@ -373,9 +372,6 @@ bool Title::loadSMDHData() {
         return false;
     }
 
-    m_shortDescription = StringUtil::toUTF8(smdh->applicationTitle(1).shortDescription);
-    std::replace(m_shortDescription.begin(), m_shortDescription.end(), '\n', ' ');
-
     m_longDescription = StringUtil::toUTF8(smdh->applicationTitle(1).longDescription);
     std::replace(m_longDescription.begin(), m_longDescription.end(), '\n', ' ');
 
@@ -396,12 +392,12 @@ void Title::saveCache() {
         return;
     }
 
-    if(!sdmc->mkdir(u"/3ds/" EXE_NAME, 0, true)) {
+    if(!sdmc->mkdir(DATA_DIRECTORY_U, 0, true)) {
         Logger::error("Save Title Cache", "Failed to create data directory");
         return;
     }
 
-    std::string path = std::format("/3ds/" EXE_NAME "/{:X}", m_id);
+    std::string path = std::format(DATA_DIRECTORY "/{:X}", m_id);
     sdmc->deleteFile(path);
 
     if((m_icon.tex == nullptr || m_tex == nullptr) && !loadSMDHData()) {
@@ -411,8 +407,7 @@ void Title::saveCache() {
 
     std::ostringstream stream;
     // version
-    stream << std::setfill('0') << std::setw(versionSize) << "1";
-    stream << std::left << std::setfill('\0') << std::setw(sizeof(SMDH::ApplicationTitle::shortDescription) / sizeof(u16)) << m_shortDescription;
+    stream << TITLE_CACHE_VER;
     stream << std::left << std::setfill('\0') << std::setw(sizeof(SMDH::ApplicationTitle::longDescription) / sizeof(u16)) << m_longDescription;
 
     // copy image data directly to stream
@@ -464,7 +459,7 @@ bool Title::loadCache() {
     }
 
     struct TitleData {
-        char shortDesc[sizeof(SMDH::ApplicationTitle::shortDescription) / sizeof(u16)], longDesc[sizeof(SMDH::ApplicationTitle::longDescription) / sizeof(u16)];
+        char longDesc[sizeof(SMDH::ApplicationTitle::longDescription) / sizeof(u16)];
         u16 texData[SMDH::ICON_WIDTH * SMDH::ICON_HEIGHT];
     };
 
@@ -481,7 +476,7 @@ bool Title::loadCache() {
         goto invalidSDMC;
     }
 
-    file = sdmc->openFile(std::format("/3ds/" EXE_NAME "/{:X}", m_id), FS_OPEN_READ, 0);
+    file = sdmc->openFile(std::format(DATA_DIRECTORY "/{:X}", m_id), FS_OPEN_READ, 0);
     if(file == nullptr || !file->valid()) {
         Logger::info("Load Cached Title Files", "Cache doesn't exist for {:X}, creating", m_id);
 
@@ -530,7 +525,7 @@ bool Title::loadCache() {
         goto invalidCache;
     }
 
-    if(strncmp(version, "001", versionSize) != 0) {
+    if(strncmp(version, TITLE_CACHE_VER, versionSize) != 0) {
         goto invalidCache;
     }
 
@@ -548,8 +543,7 @@ bool Title::loadCache() {
     }
 
     fileOffset += read;
-    m_shortDescription = titleData->shortDesc;
-    m_longDescription  = titleData->longDesc;
+    m_longDescription = titleData->longDesc;
 
     m_tex  = TexWrapper::create(SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT, GPU_RGB565);
     m_icon = { m_tex->handle(), &SMDH::ICON_SUBTEX };

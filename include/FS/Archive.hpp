@@ -7,6 +7,9 @@
 #include <memory>
 #include <string>
 
+#define DATA_DIRECTORY   "/3ds/" EXE_NAME
+#define DATA_DIRECTORY_U u"/3ds/" EXE_NAME
+
 class Directory;
 class File;
 class Archive : public std::enable_shared_from_this<Archive> {

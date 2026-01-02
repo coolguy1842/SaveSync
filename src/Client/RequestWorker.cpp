@@ -123,73 +123,73 @@ void Client::queueWorkerMain() {
             Result res;
             switch(request.type) {
             case QueuedRequest::UPLOAD_SAVE:
-                m_requestStatus = std::format("Upload Save\n{}", request.title->longDescription());
+                m_requestStatus = std::format("Upload Save\n{}", request.title->name());
                 requestStatusChangedSignal(m_requestStatus);
 
                 if(R_FAILED(res = upload(request.title, SAVE))) {
                     if(res == Client::emptyUploadError()) {
-                        requestFailedSignal(std::format("No save files to upload\n{}", request.title->longDescription()));
+                        requestFailedSignal(std::format("No save files to upload\n{}", request.title->name()));
                     }
                     else {
                         Logger::warn("Request Worker", "Failed to upload save {:X}", request.title->id());
                         Logger::warn("Request Worker", res);
 
                         m_processRequests = false;
-                        requestFailedSignal(std::format("Failed to Upload Save\n{}", request.title->longDescription()));
+                        requestFailedSignal(std::format("Failed to Upload Save\n{}", request.title->name()));
                     }
                 }
 
                 break;
             case QueuedRequest::DOWNLOAD_SAVE:
-                m_requestStatus = std::format("Download Save\n{}", request.title->longDescription());
+                m_requestStatus = std::format("Download Save\n{}", request.title->name());
                 requestStatusChangedSignal(m_requestStatus);
 
                 if(R_FAILED(res = download(request.title, SAVE))) {
                     if(res == Client::emptyDownloadError()) {
-                        requestFailedSignal(std::format("No save files to download\n{}", request.title->longDescription()));
+                        requestFailedSignal(std::format("No save files to download\n{}", request.title->name()));
                     }
                     else {
                         Logger::warn("Request Worker", "Failed to download save {:X}", request.title->id());
                         Logger::warn("Request Worker", res);
 
                         m_processRequests = false;
-                        requestFailedSignal(std::format("Failed to Download Save\n{}", request.title->longDescription()));
+                        requestFailedSignal(std::format("Failed to Download Save\n{}", request.title->name()));
                     }
                 }
 
                 break;
             case QueuedRequest::UPLOAD_EXTDATA:
-                m_requestStatus = std::format("Upload Ext\n{}", request.title->longDescription());
+                m_requestStatus = std::format("Upload Ext\n{}", request.title->name());
                 requestStatusChangedSignal(m_requestStatus);
 
                 if(R_FAILED(res = upload(request.title, EXTDATA))) {
                     if(res == Client::emptyUploadError()) {
-                        requestFailedSignal(std::format("No extdata files to upload\n{}", request.title->longDescription()));
+                        requestFailedSignal(std::format("No extdata files to upload\n{}", request.title->name()));
                     }
                     else {
                         Logger::warn("Request Worker", "Failed to upload extdata {:X}", request.title->id());
                         Logger::warn("Request Worker", res);
 
                         m_processRequests = false;
-                        requestFailedSignal(std::format("Failed to Upload Extdata\n{}", request.title->longDescription()));
+                        requestFailedSignal(std::format("Failed to Upload Extdata\n{}", request.title->name()));
                     }
                 }
 
                 break;
             case QueuedRequest::DOWNLOAD_EXTDATA:
-                m_requestStatus = std::format("Download Ext\n{}", request.title->longDescription());
+                m_requestStatus = std::format("Download Ext\n{}", request.title->name());
                 requestStatusChangedSignal(m_requestStatus);
 
                 if(R_FAILED(res = download(request.title, EXTDATA))) {
                     if(res == Client::emptyDownloadError()) {
-                        requestFailedSignal(std::format("No extdata files to download\n{}", request.title->longDescription()));
+                        requestFailedSignal(std::format("No extdata files to download\n{}", request.title->name()));
                     }
                     else {
                         Logger::warn("Request Worker", "Failed to download extdata {:X}", request.title->id());
                         Logger::warn("Request Worker", res);
 
                         m_processRequests = false;
-                        requestFailedSignal(std::format("Failed to Download Extdata\n{}", request.title->longDescription()));
+                        requestFailedSignal(std::format("Failed to Download Extdata\n{}", request.title->name()));
                     }
                 }
 

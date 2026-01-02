@@ -48,7 +48,26 @@ size_t TitleLoader::titlesLoaded() const { return m_titlesLoaded; }
 
 bool TitleLoader::isLoadingTitles() const { return m_loaderWorker->running(); }
 
+// https://github.com/azahar-emu/azahar/blob/43e044ad9ad9dd4f124dc0acf8abd7f69b59778e/src/core/hle/kernel/svc.cpp#L107
+#define SYSTEM_INFO_TYPE_CITRA_INFORMATION 0x20000
+
+// used to ignore game card reading if on emulator(only tested with azahar)
+bool TitleLoader::gameCardSupported() {
+    return m_cardSupported
+        .or_else([this]() {
+            s64 check = 0;
+
+            // possible later emulators dont use this, doesnt matter as this is just to suppress an emulator log
+            return (m_cardSupported = R_SUCCEEDED(svcGetSystemInfo(&check, SYSTEM_INFO_TYPE_CITRA_INFORMATION, 0)) && check == 0);
+        })
+        .value_or(false);
+}
+
 bool TitleLoader::loadGameCardTitle() {
+    if(!gameCardSupported()) {
+        return false;
+    }
+
     auto cleanupLastCard = [this]() {
         if(m_lastCardID == 0) {
             return;
@@ -133,7 +152,8 @@ void TitleLoader::loadSDTitles(u32 numTitles) {
     if(numTitles == 0) {
         return;
     }
-    else if(numTitles == UINT32_MAX) {
+
+    if(numTitles == UINT32_MAX) {
         if(R_FAILED(res = AM_GetTitleCount(MEDIATYPE_SD, &numTitles))) {
             Logger::warn("Load SD Titles", "Failed to get title count");
             Logger::warn("Load SD Titles", res);
@@ -142,7 +162,7 @@ void TitleLoader::loadSDTitles(u32 numTitles) {
     }
 
     std::vector<u64> ids(numTitles);
-    if(R_FAILED(res = AM_GetTitleList(&numTitles, MEDIATYPE_SD, numTitles, ids.data()))) {
+    if(R_FAILED(res = AM_GetTitleList(&numTitles, MEDIATYPE_SD, ids.size(), ids.data()))) {
         Logger::warn("Load SD Titles", "Failed to get SDCard title list");
         Logger::warn("Load SD Titles", res);
 
@@ -228,9 +248,12 @@ void TitleLoader::loadWorkerMain() {
 
     Logger::info("Load Worker", "Loaded {} titles", m_titles.size());
     titlesFinishedLoadingSignal();
-    reloadHashes();
 
-    m_cardWorker->start();
+    if(gameCardSupported()) {
+        m_cardWorker->start();
+    }
+
+    reloadHashes();
 }
 
 enum Priority {

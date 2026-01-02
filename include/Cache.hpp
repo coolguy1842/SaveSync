@@ -16,8 +16,11 @@ public:
 
 private:
     bool m_valid;
-    std::shared_ptr<File> m_cacheFile;
-    std::shared_ptr<File> m_mapFile;
+
+    std::shared_ptr<File> openFile(VarPath path, u32 flags = FS_OPEN_CREATE | FS_OPEN_READ);
+
+    std::shared_ptr<File> openCacheFile(u32 flags = FS_OPEN_CREATE | FS_OPEN_READ);
+    std::shared_ptr<File> openMapFile(u32 flags = FS_OPEN_CREATE | FS_OPEN_READ);
 };
 
 #endif
