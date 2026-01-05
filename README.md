@@ -40,6 +40,7 @@ For CIA format, drag makerom(.exe) into the base folder, and rebuild, for the ba
 - [ ] Second Confirm for Downloading, with Don't Show Again
 - [ ] Use Compression with HTTP
 - [ ] Better Caching System
+- [ ] Update List Layout
 
 ## Thanks To
 - [Checkpoint](https://github.com/BernardoGiordano/Checkpoint) Design inspiration, and code reference.
@@ -47,9 +48,7 @@ For CIA format, drag makerom(.exe) into the base folder, and rebuild, for the ba
 - All involved with [3ds-examples](https://github.com/devkitPro/3ds-examples).
 - [Clay](https://github.com/nicbarker/clay) Great UI layout library.
 - [3DSky](https://github.com/pvini07BR/3DSky) & [clay3ds](https://github.com/sonodima/clay3ds) & [Clay Renderer SDL3](https://github.com/nicbarker/clay/blob/main/renderers/SDL3/clay_renderer_SDL3.c) References for the Clay renderer.
-- [curl](https://github.com/devkitPro/curl) Great HTTP library.
 - [rocket](https://github.com/tripleslash/rocket) Easy to use & safe signal library.
-- [rapidjson](https://github.com/Tencent/rapidjson) Fast JSON Parser & Generator.
 - [md5-c](https://github.com/Zunawe/md5-c) Simple and easy to use MD5 hasher.
 - [devkitNix](https://github.com/bandithedoge/devkitNix) Nix flake for devkitPro.
 - [cmake_timestamp](https://github.com/kraiskil/cmake_timestamp) Simple cmake include for time & git info

@@ -23,6 +23,7 @@
                     ninja
                     cmake
                     act
+                    azahar
                 ];
             };
 

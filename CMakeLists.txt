@@ -46,7 +46,6 @@ add_executable(${PROJECT_NAME}
 	src/Util/Mutex.cpp
 	src/Util/CondVar.cpp
 	src/Util/Worker.cpp
-	src/Util/CURLEasy.cpp
 	src/Util/TexWrapper.cpp
 	src/Util/SMDH.cpp
 	src/Util/ScopedService.cpp
@@ -63,11 +62,8 @@ add_executable(${PROJECT_NAME}
 	src/Title.cpp
 	src/TitleLoader.cpp
 
-	src/Client/Client.cpp
-	src/Client/RequestWorker.cpp
-	src/Client/Info.cpp
-	src/Client/Upload.cpp
-	src/Client/Download.cpp
+	src/SocketClient/Client.cpp
+	src/SocketClient/Socket.cpp
 
 	src/UI/SettingsScreen.cpp
 	src/UI/MainScreen.cpp
@@ -87,7 +83,7 @@ target_compile_definitions(${PROJECT_NAME} PUBLIC
 
 target_link_directories(${PROJECT_NAME} PRIVATE ${DEVKITPRO}/portlibs/3ds/lib)
 target_include_directories(${PROJECT_NAME} PRIVATE include ${CMAKE_BINARY_DIR})
-target_link_libraries(${PROJECT_NAME} PRIVATE timestamp citro2d citro3d curl mbedtls mbedx509 mbedcrypto ctru z)
+target_link_libraries(${PROJECT_NAME} PRIVATE timestamp citro2d citro3d mbedtls mbedx509 mbedcrypto ctru z)
 
 target_compile_options(${PROJECT_NAME} PRIVATE
 	-Wall
