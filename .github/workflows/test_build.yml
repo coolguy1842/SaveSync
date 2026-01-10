@@ -15,7 +15,7 @@ jobs:
           persist-credentials: false
 
       - name: Configure
-        run: cmake -S . -B build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
         
       - name: Build
         run: cmake --build build

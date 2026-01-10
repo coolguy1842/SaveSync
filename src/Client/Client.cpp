@@ -110,8 +110,6 @@ Client::~Client() {
     m_valid = false;
 
     stopQueueWorker();
-    m_requestWorker.reset();
-
     if(numClients != 0) {
         numClients--;
     }

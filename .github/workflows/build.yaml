@@ -11,6 +11,9 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write
+
     steps:
       - uses: actions/checkout@v5
         with:
@@ -46,14 +49,14 @@ jobs:
           delete_release: true
           tag_name: ${{ env.dev_tag }}
         env:
-          GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create New Latest Tag
         uses: rickstaa/action-create-tag@v1
         with:
           tag: ${{ env.dev_tag }}
           tag_exists_error: false
-          github_token: ${{ secrets.REPO_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           message: "Latest Release"
 
       - name: Create Release
@@ -66,7 +69,7 @@ jobs:
             build/SaveSync.3dsx
             build/SaveSync.cia
           tag_name: ${{ env.dev_tag }}
-          token: ${{ secrets.REPO_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4

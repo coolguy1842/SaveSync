@@ -79,7 +79,6 @@ Title::Title(u64 id, FS_MediaType mediaType, FS_CardType cardType)
 
 Title::~Title() {
     m_icon = { nullptr, nullptr };
-    m_tex.reset();
 }
 
 bool Title::valid() const { return m_valid; }
@@ -635,8 +634,8 @@ bool Title::loadCache() {
 
     std::unique_ptr<TitleData> titleData;
     titleData.reset(new TitleData);
-    read = file->read(titleData.get(), sizeof(TitleData), fileOffset);
 
+    read = file->read(titleData.get(), sizeof(TitleData), fileOffset);
     if(read != sizeof(TitleData) || R_FAILED(file->lastResult())) {
         goto invalidCache;
     }
@@ -652,7 +651,7 @@ bool Title::loadCache() {
     m_saveFiles.clear();
     m_extdataFiles.clear();
 
-    constexpr u64 maxBuf = 0x100;
+    constexpr u64 maxBuf = 0x1000;
     u64 bufSize          = 0;
     char buf[maxBuf];
 

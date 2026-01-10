@@ -10,8 +10,8 @@ constexpr size_t maxHashBufSize = 0x10000;
 TitleLoader::TitleLoader()
     : m_lastCardID(0)
     , m_cardWorker(std::make_unique<Worker>([this](Worker*) { cardWorkerMain(); }, 2, 0x1000, Worker::SYSCORE))
-    , m_loaderWorker(std::make_unique<Worker>([this](Worker*) { loadWorkerMain(); }, 4, maxHashBufSize + maxHashBufSize, Worker::APPCORE))
-    , m_hashWorker(std::make_unique<Worker>([this](Worker*) { hashWorkerMain(); }, 3, maxHashBufSize + maxHashBufSize, Worker::APPCORE)) {
+    , m_loaderWorker(std::make_unique<Worker>([this](Worker*) { loadWorkerMain(); }, 4, maxHashBufSize + 0x6000, Worker::APPCORE))
+    , m_hashWorker(std::make_unique<Worker>([this](Worker*) { hashWorkerMain(); }, 3, maxHashBufSize + 0x2000, Worker::APPCORE)) {
     // needed for SYSCORE thread
     APT_SetAppCpuTimeLimit(5);
     reloadTitles();
@@ -23,19 +23,14 @@ TitleLoader::~TitleLoader() {
     titleHashedSignal.clear();
 
     m_cardWorker->signalShouldExit();
+    m_condVar.broadcast();
+
     m_loaderWorker->signalShouldExit();
     m_hashWorker->signalShouldExit();
 
-    m_condVar.broadcast();
-
     m_loaderWorker->waitForExit();
-    m_loaderWorker.reset();
-
     m_hashWorker->waitForExit();
-    m_hashWorker.reset();
-
     m_cardWorker->waitForExit();
-    m_cardWorker.reset();
 }
 
 void TitleLoader::reloadTitles() {
