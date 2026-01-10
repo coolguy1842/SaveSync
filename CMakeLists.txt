@@ -160,6 +160,9 @@ ctr_add_graphics_target(${PROJECT_NAME}_gfx ATLAS
       -f rgba -H ${CMAKE_BINARY_DIR}/${PROJECT_NAME}_gfx.h
 )
 
+add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_gfx)
+dkp_add_asset_target(${PROJECT_NAME}_romfs ${CMAKE_CURRENT_BINARY_DIR}/romfs)
+
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 	if(DISABLE_LEAK_CHECK)
 		add_compile_definitions(DISABLE_LEAK_CHECK)
@@ -191,7 +194,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 
 	debug_symbol_list(${PROJECT_NAME})
 
-	dkp_add_asset_target(${PROJECT_NAME}_romfs ${CMAKE_CURRENT_BINARY_DIR}/romfs)
 	dkp_set_target_file(${PROJECT_NAME}_lst ${PROJECT_BINARY_DIR}/${PROJECT_NAME}.lst)
 	dkp_install_assets(${PROJECT_NAME}_romfs TARGETS ${PROJECT_NAME}_lst ${PROJECT_NAME}_gfx)
 
@@ -199,7 +201,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 else()
 	target_compile_options(${PROJECT_NAME} PRIVATE -D_FORTIFY_SOURCE=1)
 
-	dkp_add_asset_target(${PROJECT_NAME}_romfs ${CMAKE_CURRENT_BINARY_DIR}/romfs)
 	dkp_install_assets(${PROJECT_NAME}_romfs TARGETS ${PROJECT_NAME}_gfx)
 	ctr_create_3dsx(${PROJECT_NAME} SMDH ${PROJECT_NAME}.smdh ROMFS ${PROJECT_NAME}_romfs)
 	
