@@ -474,7 +474,7 @@ bool Title::loadSMDHData() {
     std::string longDescription = StringUtil::toUTF8(smdh->applicationTitle(1).longDescription);
     std::replace(longDescription.begin(), longDescription.end(), '\n', ' ');
 
-    strncpy(m_longDescription, longDescription.c_str(), sizeof(m_longDescription));
+    strncpy(m_longDescription, longDescription.c_str(), sizeof(m_longDescription) - 1);
 
     m_tex  = smdh->bigTex();
     m_icon = { m_tex->handle(), &SMDH::ICON_SUBTEX };
@@ -642,7 +642,7 @@ bool Title::loadCache() {
     }
 
     fileOffset += read;
-    strncpy(m_longDescription, titleData->longDesc, sizeof(m_longDescription));
+    strncpy(m_longDescription, titleData->longDesc, sizeof(m_longDescription) - 1);
 
     m_tex  = TexWrapper::create(SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT, GPU_RGB565);
     m_icon = { m_tex->handle(), &SMDH::ICON_SUBTEX };
