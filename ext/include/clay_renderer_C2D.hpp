@@ -20,18 +20,8 @@ enum CustomElementType {
     CUSTOM_ELEMENT_TYPE_CIRCLE = 0
 };
 
-// vectors clamped from 0 to 1
-struct PolygonData {
-    Clay_Vector2 a;
-    Clay_Vector2 b;
-    Clay_Vector2 c;
-};
-
 struct CustomElementData {
     CustomElementType type;
-    union {
-        PolygonData polygon;
-    };
 };
 
 void C2D_Clay_Init();

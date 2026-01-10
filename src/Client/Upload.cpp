@@ -15,12 +15,13 @@
 Result Client::noFilesUploadError() { return MAKERESULT(RL_TEMPORARY, RS_CANCELED, RM_APPLICATION, RD_CANCEL_REQUESTED); }
 Result Client::emptyUploadError() { return MAKERESULT(RL_TEMPORARY, RS_CANCELED, RM_APPLICATION, RD_ALREADY_EXISTS); }
 
+// TODO: upload total size, and used size, some extdata & save files have uninitialized data, which must be preserved, as some games use it to check random things
 Result Client::beginUpload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::vector<std::string>& requestedFiles) {
     Logger::info("Upload Begin", "Starting upload for {:X}, Container: {}", title->id(), getContainerName(container));
 
     std::vector<FileInfo> files = title->getContainerFiles(container);
     if(files.size() <= 0) {
-        Logger::warn("Upload Begin", "No files found for {}", getContainerName(container));
+        Logger::info("Upload Begin", "No files found for {}", getContainerName(container));
         return noFilesUploadError();
     }
 
@@ -45,7 +46,7 @@ Result Client::beginUpload(std::shared_ptr<Title> title, Container container, st
             writer.String(info.path.c_str());
 
             writer.Key("size");
-            writer.Uint64(info.size);
+            writer.Uint64(info.totalSize);
 
             writer.Key("hash");
 
@@ -73,7 +74,7 @@ Result Client::beginUpload(std::shared_ptr<Title> title, Container container, st
         .url            = std::format("{}/v1/upload/begin", url(), ticket),
         .method         = POST,
         .contentType    = "application/json",
-        .connectTimeout = 2,
+        .connectTimeout = 5,
 
         .read = ReadOptions{
             .dataSize = static_cast<long>(jsonStrSize),
@@ -106,11 +107,13 @@ Result Client::beginUpload(std::shared_ptr<Title> title, Container container, st
         Logger::warn("Upload Begin", "Invalid CURL code: {}", static_cast<int>(code));
         return performFailError();
     }
-    else if(easy.statusCode() == 204) {
+
+    switch(easy.statusCode()) {
+    case 200: break;
+    case 204:
         Logger::info("Upload Begin", "Status code is 204, stopping upload early");
         return emptyUploadError();
-    }
-    else if(easy.statusCode() != 200) {
+    default:
         Logger::warn("Upload Begin", "Invalid status code: {} != 200", easy.statusCode());
         return invalidStatusCodeError();
     }
@@ -135,6 +138,7 @@ Result Client::beginUpload(std::shared_ptr<Title> title, Container container, st
     return RL_SUCCESS;
 }
 
+// TODO: change to only upload real data
 Result Client::uploadFile(const std::string& ticket, std::shared_ptr<File> file, const std::string& path) {
     Logger::info("Upload File", "Ticket: {} - Uploading {}", ticket, path);
 
@@ -147,11 +151,12 @@ Result Client::uploadFile(const std::string& ticket, std::shared_ptr<File> file,
     u64 fileReadOffset = 0;
     CURLEasy easy;
 
+    bool uploadingFake = false;
     easy.setOptions({
         .url            = std::format("{}/v1/upload/{}/file?path={}", url(), ticket, easy.escape(path)),
         .method         = PUT,
         .contentType    = "application/octet-stream",
-        .connectTimeout = 2,
+        .connectTimeout = 5,
 
         .lowSpeed = LowSpeedOptions{
             .limit = 0,
@@ -159,32 +164,74 @@ Result Client::uploadFile(const std::string& ticket, std::shared_ptr<File> file,
         },
 
         .read = ReadOptions{
-            .bufferSize = 0x100,
+            .bufferSize = 0x1000,
             .dataSize   = static_cast<long>(fileSize),
-            .callback   = [this, file, path, &fileSize, &fileReadOffset](char* data, size_t dataSize) {
-                u64 read = file->read(reinterpret_cast<u8*>(data), dataSize, fileReadOffset);
-                if(read == 0 || read == U64_MAX) {
-                    Logger::warn("Upload File", "Invalid read: {} size: {}", path, read);
-                    return static_cast<size_t>(CURL_READFUNC_ABORT);
+            .callback   = [this, file, path, &fileSize, &fileReadOffset, &uploadingFake](char* data, size_t dataSize) {
+                if(fileReadOffset >= fileSize) {
+                    return 0U;
                 }
 
-                fileReadOffset += read;
-                m_progressCurrent += read;
-                requestProgressChangedSignal(m_progressCurrent, m_progressMax);
+                constexpr size_t readSize = 0x1000;
+                size_t bytesRead          = 0;
 
-                return static_cast<size_t>(read);
+                if(uploadingFake) {
+                doFakeUpload:
+                    size_t fakeSize = dataSize - bytesRead;
+
+                    if(fileReadOffset + fakeSize > fileSize) {
+                        fakeSize = fileSize - fileReadOffset;
+                    }
+
+                    memset(data + bytesRead, 0, fakeSize);
+                    fileReadOffset += fakeSize;
+                    m_progressCurrent += fakeSize;
+
+                    return bytesRead + fakeSize;
+                }
+
+                for(; bytesRead < (readSize * round(dataSize / readSize));) {
+                    u64 read = file->read(reinterpret_cast<u8*>(data + bytesRead), readSize, fileReadOffset);
+                    if(read == U64_MAX) {
+                        if(file->lastResult() == -0x26FFBA75) {
+                            uploadingFake = true;
+                            goto doFakeUpload;
+                        }
+
+                        return static_cast<size_t>(CURL_READFUNC_ABORT);
+                    }
+                    else if(read == 0) {
+                        break;
+                    }
+
+                    bytesRead += read;
+                    fileReadOffset += read;
+                    m_progressCurrent += read;
+                    requestProgressChangedSignal(m_progressCurrent, m_progressMax);
+
+                    if(read < readSize) {
+                        break;
+                    }
+                }
+
+                return static_cast<size_t>(bytesRead);
             },
         },
     });
 
     CURLcode code = easy.perform();
+    Logger::info("Upload File", "Performed upload");
+
     setOnline(code == CURLE_OK);
 
     if(code != CURLE_OK) {
         Logger::warn("Upload File", "Invalid CURL code: {}", static_cast<int>(code));
         return performFailError();
     }
-    else if(easy.statusCode() != 201 && easy.statusCode() != 204) {
+
+    switch(easy.statusCode()) {
+    case 201:
+    case 204: break;
+    default:
         Logger::warn("Upload File", "Invalid status code: {} != 201 || 204", easy.statusCode());
         return invalidStatusCodeError();
     }
@@ -199,7 +246,7 @@ Result Client::endUpload(const std::string& ticket) {
         .url            = std::format("{}/v1/upload/{}/end", url(), ticket),
         .method         = PUT,
         .noBody         = true,
-        .connectTimeout = 2,
+        .connectTimeout = 5,
 
         .read = ReadOptions{
             .dataSize = 0,
@@ -208,6 +255,7 @@ Result Client::endUpload(const std::string& ticket) {
     });
 
     CURLcode code = easy.perform();
+    Logger::info("Upload End", "Ticket: {} - Performed End", ticket);
     setOnline(code == CURLE_OK);
 
     if(code != CURLE_OK) {
@@ -229,7 +277,7 @@ Result Client::cancelUpload(const std::string& ticket) {
         .url            = std::format("{}/v1/upload/{}", url(), ticket),
         .method         = DELETE,
         .noBody         = true,
-        .connectTimeout = 2,
+        .connectTimeout = 5,
     });
 
     CURLcode code = easy.perform();
@@ -267,11 +315,6 @@ Result Client::upload(std::shared_ptr<Title> title, Container container) {
 
     Result res;
     if(R_FAILED(res = beginUpload(title, container, ticket, requestedFiles))) {
-        if(res == emptyUploadError() || res == noFilesUploadError()) {
-            return res;
-        }
-
-        Logger::warn("Upload", "Failed to begin");
         return res;
     }
 
@@ -332,8 +375,12 @@ Result Client::upload(std::shared_ptr<Title> title, Container container) {
         }
     }
 
+    Logger::info("Upload", "Ticket: {} - Updated container files", ticket);
+
     titleCacheChangedSignal();
     titleInfoChangedSignal(title->id(), m_cachedTitleInfo[title->id()]);
+
+    Logger::info("Upload", "Ticket: {} - Sent cache signals", ticket);
 
     return RL_SUCCESS;
 }

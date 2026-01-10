@@ -32,7 +32,7 @@ endfunction()
 
 add_executable(${PROJECT_NAME}
 	ext/src/md5.c
-	ext/src/ptmplays.c
+	ext/src/ext_ptmplays.c
 	ext/src/clay_renderer_C2D.cpp
 
 	src/Debug/SymbolUtils.c
@@ -43,13 +43,15 @@ add_executable(${PROJECT_NAME}
 
 	src/Util/StringUtil.cpp
 	src/Util/Keyboard.cpp
+	src/Util/ScopedService.cpp
 	src/Util/Mutex.cpp
 	src/Util/CondVar.cpp
 	src/Util/Worker.cpp
 	src/Util/CURLEasy.cpp
+	src/Util/EmuUtil.cpp
 	src/Util/TexWrapper.cpp
+	src/Util/SpriteSheet.cpp
 	src/Util/SMDH.cpp
-	src/Util/ScopedService.cpp
 
 	src/FS/FSUtil.cpp
 	src/FS/Archive.cpp
@@ -69,6 +71,7 @@ add_executable(${PROJECT_NAME}
 	src/Client/Upload.cpp
 	src/Client/Download.cpp
 
+	src/UI/ErrorScreen.cpp
 	src/UI/SettingsScreen.cpp
 	src/UI/MainScreen.cpp
 
@@ -129,7 +132,32 @@ ctr_generate_smdh(${PROJECT_NAME}.smdh
 	NAME "${PROJECT_NAME}"
 	AUTHOR "coolguy1842"
 	DESCRIPTION "v${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}"
-	ICON "${PROJECT_SOURCE_DIR}/assets/icon.png"
+	ICON ${PROJECT_SOURCE_DIR}/assets/icon.png
+)
+
+ctr_add_graphics_target(${PROJECT_NAME}_gfx ATLAS
+    INPUTS
+      ${PROJECT_SOURCE_DIR}/assets/icons/wifi_good.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/wifi_decent.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/wifi_bad.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/wifi_terrible.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/wifi_off.png
+
+      ${PROJECT_SOURCE_DIR}/assets/icons/battery_0.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/battery_1.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/battery_2.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/battery_3.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/battery_4.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/battery_5.png
+
+      ${PROJECT_SOURCE_DIR}/assets/icons/battery_charging_0.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/battery_charging_1.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/battery_charging_2.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/battery_charging_3.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/battery_charging_4.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/battery_charging_5.png
+    OPTIONS
+      -f rgba -H ${CMAKE_BINARY_DIR}/${PROJECT_NAME}_gfx.h
 )
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -164,14 +192,17 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
 	debug_symbol_list(${PROJECT_NAME})
 
 	dkp_add_asset_target(${PROJECT_NAME}_romfs ${CMAKE_CURRENT_BINARY_DIR}/romfs)
-	dkp_set_target_file(${PROJECT_NAME}_lst "${PROJECT_BINARY_DIR}/${PROJECT_NAME}.lst")
-	dkp_install_assets(${PROJECT_NAME}_romfs TARGETS ${PROJECT_NAME}_lst)
+	dkp_set_target_file(${PROJECT_NAME}_lst ${PROJECT_BINARY_DIR}/${PROJECT_NAME}.lst)
+	dkp_install_assets(${PROJECT_NAME}_romfs TARGETS ${PROJECT_NAME}_lst ${PROJECT_NAME}_gfx)
 
 	ctr_create_3dsx(${PROJECT_NAME} SMDH ${PROJECT_NAME}.smdh ROMFS ${PROJECT_NAME}_romfs)
 else()
 	target_compile_options(${PROJECT_NAME} PRIVATE -D_FORTIFY_SOURCE=1)
 
-	ctr_create_3dsx(${PROJECT_NAME} SMDH ${PROJECT_NAME}.smdh)
+	dkp_add_asset_target(${PROJECT_NAME}_romfs ${CMAKE_CURRENT_BINARY_DIR}/romfs)
+	dkp_install_assets(${PROJECT_NAME}_romfs TARGETS ${PROJECT_NAME}_gfx)
+	ctr_create_3dsx(${PROJECT_NAME} SMDH ${PROJECT_NAME}.smdh ROMFS ${PROJECT_NAME}_romfs)
+	
 	if(EXISTS ${PROJECT_SOURCE_DIR}/makerom)
 		set(CIA_FILE ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.cia)
 		set(BANNER_FILE ${CMAKE_CURRENT_BINARY_DIR}/banner.bnr)

@@ -4,7 +4,7 @@
 
 const std::string defaultURL = "http://example.com";
 const u16 defaultPort        = 8000;
-const Layout defaultLayout   = GRID;
+const Layout defaultLayout   = LIST;
 
 Config::Config()
     : m_serverURL(std::make_shared<Option<std::string>>("Server URL", defaultURL))
@@ -94,5 +94,5 @@ std::shared_ptr<File> Config::openFile(u32 flags) {
         return nullptr;
     }
 
-    return sdmc->openFile(DATA_DIRECTORY "/config", flags, 0);
+    return sdmc->openFile(DATA_DIRECTORY_U u"/config", flags, 0);
 }

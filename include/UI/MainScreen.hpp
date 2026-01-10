@@ -5,6 +5,7 @@
 #include <TitleLoader.hpp>
 #include <UI/Screen.hpp>
 #include <UI/SettingsScreen.hpp>
+#include <Util/SpriteSheet.hpp>
 #include <clay.h>
 #include <memory>
 #include <rocket.hpp>
@@ -37,9 +38,8 @@ private:
     void scrollToCurrent();
     void showYesNo(std::string text, QueuedRequest::RequestType action, std::shared_ptr<Title> title);
 
-    // tries to upload/download the selected title
-    void tryDownload(Container container);
-    void tryUpload(Container container);
+    void tryDownload();
+    void tryUpload();
 
     std::shared_ptr<Config> m_config;
     std::shared_ptr<TitleLoader> m_loader;
@@ -47,6 +47,9 @@ private:
 
     std::unique_ptr<SettingsScreen> m_settingsScreen;
     size_t m_selectedTitle = 0;
+
+    Services::PTMU m_ptmuService;
+    Services::MCUHWc m_mcuhwcService;
 
     u16 m_rows        = 0;
     u16 m_visibleRows = 0;
@@ -58,6 +61,7 @@ private:
     bool m_yesNoActive = false, m_yesSelected = false;
     QueuedRequest m_yesNoAction;
 
+    SpriteSheet m_sprites;
     bool m_okActive = false;
 
     size_t m_prevLoadedTitles = std::numeric_limits<size_t>::max();
@@ -71,7 +75,8 @@ private:
     std::string m_networkQueueText, m_networkRequestText;
     Clay_String m_networkQueueString = CLAY_STRING(""), m_networkRequestString = CLAY_STRING("");
 
-    std::string m_titleTexts;
+    char m_percentText[5];
+    int32_t m_percentTextLen;
 
     bool m_serverOnline    = false;
     bool m_updateTitleInfo = true;

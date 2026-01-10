@@ -33,7 +33,6 @@ Client::DownloadAction::Action Client::DownloadAction::actionValue(std::string t
 }
 
 Result Client::emptyDownloadError() { return MAKERESULT(RL_TEMPORARY, RS_CANCELED, RM_APPLICATION, RD_ALREADY_EXISTS); }
-
 Result Client::beginDownload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::vector<Client::DownloadAction>& fileActions) {
     Logger::info("Download Begin", "Starting Download for {:X}, Container: {}", title->id(), getContainerName(container));
 
@@ -60,7 +59,7 @@ Result Client::beginDownload(std::shared_ptr<Title> title, Container container, 
             writer.String(info.path.c_str());
 
             writer.Key("size");
-            writer.Uint64(info.size);
+            writer.Uint64(info.totalSize);
 
             writer.Key("hash");
 
@@ -88,7 +87,7 @@ Result Client::beginDownload(std::shared_ptr<Title> title, Container container, 
         .url            = std::format("{}/v1/download/begin", url(), ticket),
         .method         = POST,
         .contentType    = "application/json",
-        .connectTimeout = 2,
+        .connectTimeout = 5,
 
         .read = ReadOptions{
             .dataSize = static_cast<long>(jsonStrSize),
@@ -121,11 +120,13 @@ Result Client::beginDownload(std::shared_ptr<Title> title, Container container, 
         Logger::warn("Download Begin", "Invalid CURL code: {}", static_cast<int>(code));
         return performFailError();
     }
-    else if(easy.statusCode() == 204) {
+
+    switch(easy.statusCode()) {
+    case 200: break;
+    case 204:
         Logger::info("Download Begin", "Status code is 204, stopping download early");
         return emptyDownloadError();
-    }
-    else if(easy.statusCode() != 200) {
+    default:
         Logger::warn("Download Begin", "Invalid status code: {} != 200", easy.statusCode());
         return invalidStatusCodeError();
     }
@@ -210,11 +211,6 @@ Result Client::downloadFile(const std::string& ticket, std::shared_ptr<File> fil
         return invalidStatusCodeError();
     }
 
-    if(file->size() > fileWriteOffset) {
-        // zero out file if more data to write
-        file->write(std::vector<u8>(file->size() - fileWriteOffset, 0), fileWriteOffset);
-    }
-
     return RL_SUCCESS;
 }
 
@@ -225,7 +221,7 @@ Result Client::endDownload(const std::string& ticket) {
         .url            = std::format("{}/v1/download/{}", url(), ticket),
         .method         = DELETE,
         .noBody         = true,
-        .connectTimeout = 2,
+        .connectTimeout = 5,
     });
 
     CURLcode code = easy.perform();
@@ -264,14 +260,7 @@ Result Client::download(std::shared_ptr<Title> title, Container container) {
     bool reloadFiles = false;
 
     Result res;
-
     if(R_FAILED(res = beginDownload(title, container, ticket, fileActions))) {
-        archive.reset();
-        if(res == emptyDownloadError()) {
-            return res;
-        }
-
-        Logger::warn("Download", "Failed to begin");
         return res;
     }
 
@@ -286,11 +275,10 @@ Result Client::download(std::shared_ptr<Title> title, Container container) {
         switch(fileAction.action) {
         case DownloadAction::KEEP: {
             newFiles.push_back(FileInfo{
-                .nativePath = StringUtil::fromUTF8(fileAction.path),
-                .path       = fileAction.path,
+                .path = fileAction.path,
 
-                .hash = fileAction.hash,
-                .size = fileAction.size.value_or(1),
+                .hash      = fileAction.hash,
+                .totalSize = fileAction.size.value_or(1),
 
                 ._shouldUpdateHash = fileAction.hash.has_value(),
             });
@@ -341,11 +329,10 @@ Result Client::download(std::shared_ptr<Title> title, Container container) {
             }
 
             newFiles.push_back(FileInfo{
-                .nativePath = StringUtil::fromUTF8(fileAction.path),
-                .path       = fileAction.path,
+                .path = fileAction.path,
 
-                .hash = fileAction.hash,
-                .size = fileAction.size.value_or(1),
+                .hash      = fileAction.hash,
+                .totalSize = fileAction.size.value_or(1),
 
                 ._shouldUpdateHash = fileAction.hash.has_value(),
             });
@@ -408,11 +395,10 @@ Result Client::download(std::shared_ptr<Title> title, Container container) {
             }
 
             newFiles.push_back(FileInfo{
-                .nativePath = StringUtil::fromUTF8(fileAction.path),
-                .path       = fileAction.path,
+                .path = fileAction.path,
 
-                .hash = fileAction.hash,
-                .size = fileAction.size.value_or(1),
+                .hash      = fileAction.hash,
+                .totalSize = fileAction.size.value_or(1),
 
                 ._shouldUpdateHash = fileAction.hash.has_value(),
             });

@@ -148,10 +148,10 @@ Application::Application(bool consoleEnabled, gfxScreen_t consoleScreen)
 }
 
 Application::~Application() {
+    m_client->stopQueueWorker(false);
+
     aptSetHomeAllowed(true);
     aptSetSleepAllowed(true);
-
-    m_client->stopQueueWorker();
 
     m_mainScreen.reset();
     m_client.reset();

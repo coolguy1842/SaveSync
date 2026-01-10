@@ -21,11 +21,11 @@ constexpr std::optional<FileInfo> getFileInfo(const rapidjson::Value& val) {
     }
 
     return FileInfo{
-        .nativePath = u"/" + StringUtil::fromUTF8(val["path"].GetString()),
-        .path       = std::format("/{}", val["path"].GetString()),
+        .path = std::format("/{}", val["path"].GetString()),
 
-        .hash = val["hash"].GetString(),
-        .size = val["size"].GetUint64(),
+        .hash      = val["hash"].GetString(),
+        .totalSize = val["size"].GetUint64(),
+        .usedSize  = 0,
     };
 }
 
@@ -48,7 +48,8 @@ Result Client::loadTitleInfoCache() {
         .url    = std::format("{}/v1/titles", url()),
         .method = CURLEasyMethod::GET,
 
-        .trackProgress          = true,
+        .trackProgress = true,
+        // 1 is abort
         .customProgressFunction = [this](curl_off_t, curl_off_t, curl_off_t, curl_off_t) noexcept -> int {
             return m_requestWorker->waitingForExit();
         },
@@ -87,7 +88,7 @@ Result Client::loadTitleInfoCache() {
     }
 
     if(document.HasParseError() || !document.IsObject()) {
-        Logger::warn("Title Info", "Invalid document");
+        Logger::warn("Title Info", "Invalid document: code: {} at {}", static_cast<u64>(document.GetParseError()), document.GetErrorOffset());
         return MAKERESULT(RL_PERMANENT, RS_INVALIDRESVAL, RM_APPLICATION, RD_INVALID_RESULT_VALUE);
     }
 

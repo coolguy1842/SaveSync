@@ -40,6 +40,8 @@ For CIA format, drag makerom(.exe) into the base folder, and rebuild, for the ba
 - [ ] Second Confirm for Downloading, with Don't Show Again
 - [ ] Use Compression with HTTP
 - [ ] Better Caching System
+- [ ] Better Caching System
+- [ ] Handle Downloading for Games that use Files with Invalid Data
 
 ## Thanks To
 - [Checkpoint](https://github.com/BernardoGiordano/Checkpoint) Design inspiration, and code reference.
@@ -54,6 +56,7 @@ For CIA format, drag makerom(.exe) into the base folder, and rebuild, for the ba
 - [devkitNix](https://github.com/bandithedoge/devkitNix) Nix flake for devkitPro.
 - [cmake_timestamp](https://github.com/kraiskil/cmake_timestamp) Simple cmake include for time & git info
 - [indigodigi](https://indigodigi.com/) Redesigned Icon & Banner
+- [Material Symbols](fonts.google.com/icons)
 - Everyone in the Nintendo Homebrew discord who helped.
 
 <!-- resources -->

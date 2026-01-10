@@ -22,3 +22,12 @@ Result ScopedService::result() const { return m_result; }
 
 Services::AM::AM()
     : ScopedService([]() -> Result { return amInit(); }, []() -> Result { amExit(); return RL_SUCCESS; }) {}
+
+Services::RomFS::RomFS()
+    : ScopedService([]() -> Result { return romfsInit(); }, []() -> Result { romfsExit(); return RL_SUCCESS; }) {}
+
+Services::PTMU::PTMU()
+    : ScopedService([]() -> Result { return ptmuInit(); }, []() -> Result { ptmuExit(); return RL_SUCCESS; }) {}
+
+Services::MCUHWc::MCUHWc()
+    : ScopedService([]() -> Result { return mcuHwcInit(); }, []() -> Result { mcuHwcExit(); return RL_SUCCESS; }) {}

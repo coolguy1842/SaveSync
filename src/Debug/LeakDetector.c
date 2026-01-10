@@ -62,6 +62,7 @@ void add_ptr(u8 allocatedWith, void* ptr, size_t size, void* pc) {
     if(traces.size <= 0) {
         const char* ignored[] = {
             "MemPool::Deallocate",
+            "setvbuf",
             NULL
         };
 

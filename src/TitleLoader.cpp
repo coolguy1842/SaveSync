@@ -1,27 +1,31 @@
 #include <Debug/Logger.hpp>
 #include <Debug/Profiler.hpp>
 #include <TitleLoader.hpp>
+#include <Util/EmuUtil.hpp>
 #include <Util/StringUtil.hpp>
 #include <map>
 
+// hopefully enough
+constexpr size_t maxHashBufSize = 0x10000;
 TitleLoader::TitleLoader()
     : m_lastCardID(0)
     , m_cardWorker(std::make_unique<Worker>([this](Worker*) { cardWorkerMain(); }, 2, 0x1000, Worker::SYSCORE))
-    , m_loaderWorker(std::make_unique<Worker>([this](Worker*) { loadWorkerMain(); }, 4, 0x10000, Worker::APPCORE))
-    , m_hashWorker(std::make_unique<Worker>([this](Worker*) { hashWorkerMain(); }, 3, 0x3000, Worker::APPCORE))
-    , p_AM(Services::AM()) {
+    , m_loaderWorker(std::make_unique<Worker>([this](Worker*) { loadWorkerMain(); }, 4, maxHashBufSize + maxHashBufSize, Worker::APPCORE))
+    , m_hashWorker(std::make_unique<Worker>([this](Worker*) { hashWorkerMain(); }, 3, maxHashBufSize + maxHashBufSize, Worker::APPCORE)) {
     // needed for SYSCORE thread
     APT_SetAppCpuTimeLimit(5);
     reloadTitles();
 }
 
 TitleLoader::~TitleLoader() {
-
     titlesLoadedChangedSignal.clear();
     titlesFinishedLoadingSignal.clear();
     titleHashedSignal.clear();
 
     m_cardWorker->signalShouldExit();
+    m_loaderWorker->signalShouldExit();
+    m_hashWorker->signalShouldExit();
+
     m_condVar.broadcast();
 
     m_loaderWorker->waitForExit();
@@ -31,6 +35,7 @@ TitleLoader::~TitleLoader() {
     m_hashWorker.reset();
 
     m_cardWorker->waitForExit();
+    m_cardWorker.reset();
 }
 
 void TitleLoader::reloadTitles() {
@@ -47,24 +52,8 @@ size_t TitleLoader::totalTitles() const { return m_totalTitles; }
 size_t TitleLoader::titlesLoaded() const { return m_titlesLoaded; }
 
 bool TitleLoader::isLoadingTitles() const { return m_loaderWorker->running(); }
-
-// https://github.com/azahar-emu/azahar/blob/43e044ad9ad9dd4f124dc0acf8abd7f69b59778e/src/core/hle/kernel/svc.cpp#L107
-#define SYSTEM_INFO_TYPE_CITRA_INFORMATION 0x20000
-
-// used to ignore game card reading if on emulator(only tested with azahar)
-bool TitleLoader::gameCardSupported() {
-    return m_cardSupported
-        .or_else([this]() {
-            s64 check = 0;
-
-            // possible later emulators dont use this, doesnt matter as this is just to suppress an emulator log
-            return (m_cardSupported = R_SUCCEEDED(svcGetSystemInfo(&check, SYSTEM_INFO_TYPE_CITRA_INFORMATION, 0)) && check == 0);
-        })
-        .value_or(false);
-}
-
 bool TitleLoader::loadGameCardTitle() {
-    if(!gameCardSupported()) {
+    if(EmulatorUtil::isEmulated()) {
         return false;
     }
 
@@ -248,8 +237,7 @@ void TitleLoader::loadWorkerMain() {
 
     Logger::info("Load Worker", "Loaded {} titles", m_titles.size());
     titlesFinishedLoadingSignal();
-
-    if(gameCardSupported()) {
+    if(!EmulatorUtil::isEmulated()) {
         m_cardWorker->start();
     }
 
@@ -273,7 +261,6 @@ void TitleLoader::hashWorkerMain() {
     };
 
     std::vector<std::shared_ptr<Title>> titles;
-
     {
         auto lock = m_titlesMutex.lock();
         titles    = m_titles;
@@ -321,9 +308,15 @@ void TitleLoader::hashWorkerMain() {
         }
     }
 
+    // must do 0x1000 bytes at a time (1 block), or will miss out on non invalid data
+    constexpr size_t bufSize = 0x1000;
+
+    std::shared_ptr<u8> hashBuf;
+    hashBuf.reset(reinterpret_cast<u8*>(malloc(bufSize)));
+
     for(const auto& entry : containers) {
         for(const auto& pair : entry.second) {
-            pair.first->hashContainer(pair.second);
+            pair.first->hashContainer(pair.second, hashBuf, bufSize, m_hashWorker.get());
 
             if(m_hashWorker->waitingForExit()) {
                 Logger::info("Hash Worker", "Exiting early");

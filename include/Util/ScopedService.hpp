@@ -25,6 +25,21 @@ class AM : public ScopedService {
 public:
     AM();
 };
+
+class RomFS : public ScopedService {
+public:
+    RomFS();
+};
+
+class PTMU : public ScopedService {
+public:
+    PTMU();
+};
+
+class MCUHWc : public ScopedService {
+public:
+    MCUHWc();
+};
 }; // namespace Services
 
 #endif

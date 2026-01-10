@@ -38,11 +38,19 @@ Title::Title(u64 id, FS_MediaType mediaType, FS_CardType cardType)
     : m_valid(false)
     , m_saveAccessible(false)
     , m_extdataAccessible(false)
+    , m_invalidHash(false)
+    , m_usedSaveSize(0)
+    , m_usedExtdataSize(0)
     , m_id(id)
     , m_mediaType(mediaType)
     , m_cardType(cardType)
     , m_outOfDate(0) {
     PROFILE_SCOPE("Load Title");
+
+    if((m_id & 0x000000FFFF000000) != 0) {
+        // title is an update, only show base games
+        return;
+    }
 
     if(R_FAILED(AM_GetTitleProductCode(m_mediaType, m_id, m_productCode))) {
         strcpy(m_productCode, "Invalid");
@@ -77,23 +85,67 @@ Title::~Title() {
 bool Title::valid() const { return m_valid; }
 void Title::setInvalid() { m_valid = false; }
 
+bool Title::invalidHash() const { return m_invalidHash; }
+
+u64 Title::usedContainerSize(Container container) {
+    auto lock = m_usedSizeMutex.lock();
+
+    switch(container) {
+    case SAVE: return m_usedSaveSize;
+    default:   return m_usedExtdataSize;
+    }
+}
+
+u64& Title::usedSize(Container container) {
+    switch(container) {
+    case SAVE: return m_usedSaveSize;
+    default:   return m_usedExtdataSize;
+    }
+}
+
+char* Title::totalUsedSizeStr() {
+    auto lock = m_usedSizeMutex.lock();
+    return m_totalUsedSizeStr;
+}
+
+void Title::updateUsedSizes() {
+    auto lock = m_usedSizeMutex.lock();
+
+    for(Container container : { SAVE, EXTDATA }) {
+        u64& numUsedSize = usedSize(container);
+        numUsedSize      = 0;
+
+        for(const auto& file : containerFiles(container)) {
+            numUsedSize += file.usedSize;
+        }
+    }
+
+    // https://stackoverflow.com/a/77278639
+    u64 usedSize            = m_usedSaveSize + m_usedExtdataSize;
+    const char* sizeNames[] = { "B", "KB", "MB", "GB", "TB" };
+
+    size_t i        = static_cast<size_t>(floor(log(usedSize) / log(1024)));
+    float humanSize = static_cast<float>(usedSize) / pow(1024, i);
+
+    snprintf(m_totalUsedSizeStr, sizeof(m_totalUsedSizeStr), "%.1f %s", humanSize, sizeNames[i]);
+}
+
 FS_MediaType Title::mediaType() const { return m_mediaType; }
 FS_CardType Title::cardType() const { return m_cardType; }
 
 u64 Title::id() const { return m_id; }
 u32 Title::highID() const { return static_cast<u32>(m_id >> 32); }
 u32 Title::lowID() const { return static_cast<u32>(m_id); }
-u32 Title::uniqueID() const { return (lowID() >> 8); }
+u32 Title::uniqueID() const { return (lowID() & 0x0FFFFF00) >> 8; }
 
 const char* Title::productCode() const { return m_productCode; }
 
-std::string Title::name() const { return m_longDescription; }
+std::string Title::name() const { return std::string(m_longDescription); }
+const char* Title::staticName() const { return m_longDescription; }
 C2D_Image* Title::icon() { return &m_icon; }
 
 // from checkpoint
 u32 Title::extdataID() const {
-    if(!m_valid) return 0;
-
     u32 low = lowID();
     switch(low) {
     case 0x00055E00: return 0x055D; // Pokémon Y
@@ -161,7 +213,7 @@ Result Title::deleteSecureSaveValue() {
     }
 
     u8 out;
-    u64 secureValue = (static_cast<u64>(SECUREVALUE_SLOT_SD) << 32) | (uniqueID() << 8);
+    u64 secureValue = (static_cast<u64>(SECUREVALUE_SLOT_SD) << 32) | ((lowID() >> 8) << 8);
     return FSUSER_ControlSecureSave(SECURESAVE_ACTION_DELETE, &secureValue, 8, &out, 1);
 }
 
@@ -218,11 +270,7 @@ void Title::setContainerFiles(std::vector<FileInfo>& files, Container container)
 void Title::loadContainerFiles(Container container, bool cache, std::shared_ptr<Archive> archive, bool shouldLock) {
     if(!m_valid) return;
 
-    ScopedLock lock = ScopedLock(containerMutex(container), true);
-    if(shouldLock) {
-        lock.lock();
-    }
-
+    ScopedLock lock = ScopedLock(containerMutex(container), !shouldLock);
     if(archive == nullptr) {
         archive = openContainer(container);
     }
@@ -234,10 +282,10 @@ void Title::loadContainerFiles(Container container, bool cache, std::shared_ptr<
 
     PROFILE_SCOPE("Load Title Container");
     std::vector<FileInfo>& files = containerFiles(container);
-    std::unordered_map<std::u16string, FileInfo> oldFiles;
+    std::unordered_map<std::string, FileInfo> oldFiles;
 
     for(const auto& file : files) {
-        oldFiles.emplace(file.nativePath, file);
+        oldFiles.emplace(file.path, file);
     }
 
     std::vector<FileInfo> newFiles;
@@ -257,7 +305,8 @@ void Title::loadContainerFiles(Container container, bool cache, std::shared_ptr<
                 continue;
             }
 
-            auto it = oldFiles.find(entry->path());
+            std::string path = StringUtil::toUTF8(entry->path());
+            auto it          = oldFiles.find(path);
             if(it != oldFiles.end()) {
                 newFiles.push_back(it->second);
 
@@ -274,11 +323,11 @@ void Title::loadContainerFiles(Container container, bool cache, std::shared_ptr<
                 continue;
             }
 
+            // TODO: get usedsize here
             newFiles.push_back(FileInfo{
-                .nativePath = entry->path(),
-                .path       = StringUtil::toUTF8(entry->path()),
-
-                .size = size,
+                .path      = path,
+                .totalSize = size,
+                .usedSize  = size,
 
                 ._shouldUpdateHash = true,
             });
@@ -291,6 +340,8 @@ void Title::loadContainerFiles(Container container, bool cache, std::shared_ptr<
     std::sort(newFiles.begin(), newFiles.end());
     files.swap(newFiles);
 
+    updateUsedSizes();
+
     if(cache) {
         if(shouldLock) {
             lock.release();
@@ -300,7 +351,7 @@ void Title::loadContainerFiles(Container container, bool cache, std::shared_ptr<
     }
 }
 
-void Title::hashContainer(Container container) {
+void Title::hashContainer(Container container, std::shared_ptr<u8> buf, size_t bufSize, Worker* worker) {
     if(!m_valid) return;
 
     auto lock = containerMutex(container).lock();
@@ -313,38 +364,79 @@ void Title::hashContainer(Container container) {
         return;
     }
 
+    // only profile from here to not allow invalid archives skewing times
     PROFILE_SCOPE("Hash Container");
 
-    u64 newSize;
-    for(auto it = files.begin(); it != files.end();) {
-        FileInfo& info = *it;
+    Logger::info("Title Hash Container", "Hashing {} for {:X}", getContainerName(container), m_id);
+    const u64 start = svcGetSystemTick();
 
-        std::shared_ptr<File> file = archive->openFile(info.nativePath, FS_OPEN_READ, 0);
+    if(buf == nullptr) {
+        if(bufSize == 0) {
+            bufSize = 0x1000;
+        }
+
+        buf.reset(reinterpret_cast<u8*>(malloc(bufSize)));
+    }
+
+    for(auto it = files.begin(); it != files.end();) {
+        if(worker != nullptr && worker->waitingForExit()) {
+            return;
+        }
+
+        FileInfo& info             = *it;
+        std::shared_ptr<File> file = archive->openFile(info.path, FS_OPEN_READ, 0);
+
+        u64 newSize;
         if(file == nullptr || !file->valid() || (newSize = file->size()) == U64_MAX) {
             it = files.erase(it);
+
             continue;
         }
 
-        info.size = file->size();
+        info.totalSize = newSize;
 
         MD5Context ctx;
         md5Init(&ctx);
 
-        u64 offset = 0;
-        std::vector<u8> buf;
+        u64 offset = 0, bytesRead;
+        while(true) {
+            if(worker != nullptr && worker->waitingForExit()) {
+                m_invalidHash = true;
+                return;
+            }
 
-        do {
-            buf = file->read(0x1000, offset);
-            offset += buf.size();
+            bytesRead = file->read(buf.get(), bufSize, offset);
+            if(bytesRead == 0) {
+                break;
+            }
+            else if(bytesRead == U64_MAX) {
+                // read all the initialized blocks
+                // WARN: this assumes all valid data is contiguous
+                if(file->lastResult() == -0x26FFBA75) {
+                    break;
+                }
 
-            md5Update(&ctx, buf.data(), buf.size());
-        } while(buf.size() >= 1);
+                Logger::warn("Title Hash Container", "Error while reading file {}", info.path);
+                Logger::warn("Title Hash Container", file->lastResult());
+
+                m_invalidHash = true;
+                return;
+            }
+
+            offset += bytesRead;
+            md5Update(&ctx, buf.get(), bytesRead);
+        }
+
+        // update used size to wherever the last byte hashing ended up at
+        info.usedSize = offset;
 
         md5Finalize(&ctx);
 
-        char hash[33];
-        for(u8 i = 0; i < 16; i++) {
-            snprintf(&hash[i * 2], 3, "%02x", ctx.digest[i]);
+        char hash[(sizeof(MD5Context::digest) * 2) + 1];
+        hash[sizeof(hash) - 1] = 0;
+
+        for(u8 i = 0; i < sizeof(MD5Context::digest); i++) {
+            sprintf(&hash[i * 2], "%02x", ctx.digest[i]);
         }
 
         info._shouldUpdateHash = false;
@@ -353,12 +445,19 @@ void Title::hashContainer(Container container) {
         it++;
     }
 
+    updateUsedSizes();
+
+    const u64 stop = svcGetSystemTick();
+    Logger::info("Title Hash Container", "Took {:02f} seconds", ((stop - start) / 268) / 1e+6);
+
+    m_invalidHash = false;
+
     lock.release();
     saveCache();
 }
 
 constexpr std::string formatFileInfo(Container container, FileInfo file) {
-    return std::format("{}{}{}:{}\n", container == SAVE ? 's' : 'e', file.size, file.path, file.hash.value_or(""));
+    return std::format("{}{}{}{}:{}\n", file.usedSize, container == SAVE ? 's' : 'e', file.totalSize, file.path, file.hash.value_or(""));
 }
 
 constexpr size_t versionSize = 3;
@@ -372,8 +471,10 @@ bool Title::loadSMDHData() {
         return false;
     }
 
-    m_longDescription = StringUtil::toUTF8(smdh->applicationTitle(1).longDescription);
-    std::replace(m_longDescription.begin(), m_longDescription.end(), '\n', ' ');
+    std::string longDescription = StringUtil::toUTF8(smdh->applicationTitle(1).longDescription);
+    std::replace(longDescription.begin(), longDescription.end(), '\n', ' ');
+
+    strncpy(m_longDescription, longDescription.c_str(), sizeof(m_longDescription));
 
     m_tex  = smdh->bigTex();
     m_icon = { m_tex->handle(), &SMDH::ICON_SUBTEX };
@@ -381,11 +482,13 @@ bool Title::loadSMDHData() {
     return true;
 }
 
-void Title::saveCache() {
+void Title::saveCache(bool lockCache, bool lockContainer) {
     if(!m_valid || m_mediaType != MEDIATYPE_SD) return;
     PROFILE_SCOPE("Save Title Cache");
 
-    auto lock                     = m_cacheMutex.lock();
+    // deffered is inverse to should lock
+    ScopedLock cacheLock(m_cacheMutex, !lockCache);
+
     std::shared_ptr<Archive> sdmc = Archive::sdmc();
     if(sdmc == nullptr || !sdmc->valid()) {
         Logger::error("Save Title Cache", "Failed to open sdmc");
@@ -397,7 +500,7 @@ void Title::saveCache() {
         return;
     }
 
-    std::string path = std::format(DATA_DIRECTORY "/{:X}", m_id);
+    std::string path = std::format(DATA_DIRECTORY "/{:X}", uniqueID());
     sdmc->deleteFile(path);
 
     if((m_icon.tex == nullptr || m_tex == nullptr) && !loadSMDHData()) {
@@ -418,7 +521,7 @@ void Title::saveCache() {
     }
 
     for(auto container : { SAVE, EXTDATA }) {
-        auto containerLock = containerMutex(container).lock();
+        ScopedLock containerLock(containerMutex(container), !lockContainer);
 
         for(auto file : getContainerFiles(container)) {
             stream << formatFileInfo(container, file);
@@ -476,7 +579,7 @@ bool Title::loadCache() {
         goto invalidSDMC;
     }
 
-    file = sdmc->openFile(std::format(DATA_DIRECTORY "/{:X}", m_id), FS_OPEN_READ, 0);
+    file = sdmc->openFile(std::format(DATA_DIRECTORY "/{:X}", uniqueID()), FS_OPEN_READ, 0);
     if(file == nullptr || !file->valid()) {
         Logger::info("Load Cached Title Files", "Cache doesn't exist for {:X}, creating", m_id);
 
@@ -501,15 +604,11 @@ bool Title::loadCache() {
         m_tex.reset();
 
         file.reset();
-        lock.release();
 
         if(m_saveAccessible) loadContainerFiles(SAVE, false, nullptr, false);
         if(m_extdataAccessible) loadContainerFiles(EXTDATA, false, nullptr, false);
 
-        saveLock.release();
-        extdataLock.release();
-
-        saveCache();
+        saveCache(false, false);
         return m_icon.tex != nullptr;
     }
 
@@ -543,7 +642,7 @@ bool Title::loadCache() {
     }
 
     fileOffset += read;
-    m_longDescription = titleData->longDesc;
+    strncpy(m_longDescription, titleData->longDesc, sizeof(m_longDescription));
 
     m_tex  = TexWrapper::create(SMDH::ICON_DATA_WIDTH, SMDH::ICON_DATA_HEIGHT, GPU_RGB565);
     m_icon = { m_tex->handle(), &SMDH::ICON_SUBTEX };
@@ -558,17 +657,18 @@ bool Title::loadCache() {
     char buf[maxBuf];
 
     enum ReadingType {
-        CONTAINER_CODE = 0,
-        SIZE,
+        USED_SIZE = 0,
+        CONTAINER_CODE,
+        TOTAL_SIZE,
         PATH,
         HASH
     };
 
-    ReadingType reading = CONTAINER_CODE;
+    ReadingType reading = USED_SIZE;
     u64 offset          = bufSize;
 
     char container = '\0';
-    u64 size       = 0;
+    u64 usedSize = 0, totalSize = 0;
 
     constexpr u32 pathMax = 0x100;
     u32 pathSize          = 0;
@@ -595,21 +695,33 @@ bool Title::loadCache() {
         }
 
         switch(reading) {
+        case USED_SIZE:
+            for(; offset < bufSize; offset++) {
+                if(!isdigit(static_cast<int>(buf[offset]))) {
+                    reading = CONTAINER_CODE;
+                    break;
+                }
+
+                usedSize *= 10;
+                usedSize += static_cast<u64>(buf[offset] - '0');
+            }
+
+            break;
         case CONTAINER_CODE:
             container = buf[offset];
             offset++;
 
-            reading = SIZE;
+            reading = TOTAL_SIZE;
             break;
-        case SIZE:
+        case TOTAL_SIZE:
             for(; offset < bufSize; offset++) {
                 if(!isdigit(static_cast<int>(buf[offset]))) {
                     reading = PATH;
                     break;
                 }
 
-                size *= 10;
-                size += static_cast<u64>(buf[offset] - '0');
+                totalSize *= 10;
+                totalSize += static_cast<u64>(buf[offset] - '0');
             }
 
             break;
@@ -653,20 +765,19 @@ bool Title::loadCache() {
             goto invalidCache;
         }
 
-        reading = CONTAINER_CODE;
+        reading = USED_SIZE;
 
+        std::string pathStr = std::string(path, pathSize);
         std::optional<std::string> hashStr;
         if(hashSize != 0) {
             hashStr = std::string(hash, hashSize);
         }
 
-        std::string pathStr = std::string(path, pathSize);
-
         FileInfo info = {
-            .nativePath = StringUtil::fromUTF8(pathStr),
-            .path       = pathStr,
-            .hash       = hashStr,
-            .size       = size
+            .path      = pathStr,
+            .hash      = hashStr,
+            .totalSize = totalSize,
+            .usedSize  = usedSize
         };
 
         switch(container) {
@@ -676,11 +787,14 @@ bool Title::loadCache() {
         }
 
         container = '\0';
-        size      = 0;
+        totalSize = 0;
+        usedSize  = 0;
         pathSize  = 0;
         hashSize  = 0;
         offset++;
     }
+
+    updateUsedSizes();
 
     return true;
 }

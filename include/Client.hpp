@@ -24,11 +24,8 @@ struct QueuedRequest {
     enum RequestType {
         NONE,
 
-        UPLOAD_SAVE,
-        DOWNLOAD_SAVE,
-
-        UPLOAD_EXTDATA,
-        DOWNLOAD_EXTDATA,
+        UPLOAD,
+        DOWNLOAD,
 
         RELOAD_TITLE_CACHE,
     };
@@ -62,7 +59,7 @@ public:
     void queueAction(QueuedRequest request);
 
     void startQueueWorker();
-    void stopQueueWorker();
+    void stopQueueWorker(bool block = true);
 
     bool processingQueueRequest() const;
     bool showRequestProgress() const;
@@ -76,6 +73,7 @@ public:
     QueuedRequest currentRequest() const;
 
     size_t requestQueueSize() const;
+    std::set<QueuedRequest> requestQueue() const;
     std::string requestStatus() const;
 
 public:
@@ -150,7 +148,6 @@ private:
 
     std::unique_ptr<Worker> m_requestWorker;
     std::set<QueuedRequest> m_requestQueue;
-    std::set<QueuedRequest> m_stagingRequestQueue;
 
     std::optional<QueuedRequest> m_activeRequest;
     ConditionVariable m_requestCondVar;
@@ -159,8 +156,6 @@ private:
 
     bool m_serverOnline;
     std::unordered_map<u64, TitleInfo> m_cachedTitleInfo;
-
-    std::string m_requestStatus;
 
     std::atomic<bool> m_titleInfoCached;
 

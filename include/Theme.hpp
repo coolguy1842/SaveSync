@@ -13,6 +13,7 @@ COLOR(Extdata)
 
 COLOR(Text)
 COLOR(Subtext0)
+COLOR(Subtext1)
 
 COLOR(Red)
 COLOR(Green)

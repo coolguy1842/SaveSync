@@ -67,8 +67,6 @@ private:
 
     // watches for changes in the game card
     std::unique_ptr<Worker> m_cardWorker;
-    std::optional<bool> m_cardSupported;
-
     std::unique_ptr<Worker> m_loaderWorker;
     std::unique_ptr<Worker> m_hashWorker;
 

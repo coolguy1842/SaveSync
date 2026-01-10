@@ -1,5 +1,7 @@
 // from https://github.com/devkitPro/libctru/blob/master/libctru/source/services/ptmplays.c, libctru not updated yet
 
+#if !__has_include(<ptmplays.h>)
+
 #include <string.h>
 #include <3ds/types.h>
 #include <3ds/result.h>
@@ -8,7 +10,7 @@
 #include <3ds/synchronization.h>
 #include <3ds/ipc.h>
 
-#include <ptmplays.h>
+#include <ext_ptmplays.h>
 
 static Handle ptmPlaysHandle;
 static int ptmPlaysRefCount;
@@ -91,3 +93,5 @@ Result PTMPLAYS_CalcPlayHistoryStart(s32 *outIndex, s32 start, s32 numEvents)
 
 	return (Result)cmdbuf[1];
 }
+
+#endif

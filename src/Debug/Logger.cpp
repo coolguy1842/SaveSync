@@ -5,7 +5,15 @@
 #include <Util/StringUtil.hpp>
 #include <string.h>
 
-std::string Logger::formatResult(Result res) { return std::format("Result |lvl {}|sum {}|mod {}|desc {}|", R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res)); }
+std::string Logger::formatResult(Result res) {
+    if(res < 0) {
+        return std::format("Result -0x{:X} |lvl {}|sum {}|mod {}|desc {}|", static_cast<uint32_t>(res), R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res));
+    }
+    else {
+        return std::format("Result 0x{:X} |lvl {}|sum {}|mod {}|desc {}|", res, R_LEVEL(res), R_SUMMARY(res), R_MODULE(res), R_DESCRIPTION(res));
+    }
+}
+
 const char* Logger::levelColor(Level level) {
     switch(level) {
     case INFO:     return infoColor; break;
@@ -35,6 +43,7 @@ struct RenameEntry {
 
 bool Logger::s_dirInitialized        = false;
 bool Logger::s_dirExists             = false;
+Mutex Logger::s_logMutex             = Mutex();
 Mutex Logger::s_fileMutex            = Mutex();
 std::shared_ptr<File> Logger::s_file = nullptr;
 

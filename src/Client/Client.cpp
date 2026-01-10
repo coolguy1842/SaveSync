@@ -109,10 +109,7 @@ Client::~Client() {
 
     m_valid = false;
 
-    m_requestWorker->signalShouldExit();
-    m_requestCondVar.broadcast();
-
-    m_requestWorker->waitForExit();
+    stopQueueWorker();
     m_requestWorker.reset();
 
     if(numClients != 0) {
@@ -174,8 +171,8 @@ u64 Client::requestProgressMax() const { return m_progressMax; }
 
 QueuedRequest Client::currentRequest() const { return m_activeRequest.value_or(QueuedRequest{ .type = QueuedRequest::NONE, .title = nullptr }); }
 
-size_t Client::requestQueueSize() const { return m_requestQueue.size() + m_stagingRequestQueue.size(); }
-std::string Client::requestStatus() const { return m_requestStatus; }
+size_t Client::requestQueueSize() const { return m_requestQueue.size(); }
+std::set<QueuedRequest> Client::requestQueue() const { return m_requestQueue; }
 
 std::string Client::url() const { return m_url; }
 void Client::setURL(std::string url) { m_url = url; }

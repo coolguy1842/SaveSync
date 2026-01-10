@@ -8,6 +8,7 @@
 #include <Util/Mutex.hpp>
 #include <Util/SMDH.hpp>
 #include <Util/TexWrapper.hpp>
+#include <Util/Worker.hpp>
 #include <memory>
 #include <optional>
 #include <string>
@@ -17,7 +18,7 @@
 #define TITLE_ICON_WIDTH  48.0f
 #define TITLE_ICON_HEIGHT 48.0f
 
-#define TITLE_CACHE_VER "002"
+#define TITLE_CACHE_VER "003"
 
 enum Container {
     SAVE    = 0b01,
@@ -25,11 +26,17 @@ enum Container {
 };
 
 struct FileInfo {
-    std::u16string nativePath;
     std::string path;
 
     std::optional<std::string> hash = std::nullopt;
-    u64 size;
+
+    u64 totalSize;
+
+    // used size is the amount of initialized data, some files will have uninitialized data, e.g terraria & mario maker
+    // this will cause a file read to fail, so it must be handled properly by reading blocks at a time to determine the last "good" block
+    // i make an assumption that i'm not sure is correct: i assume that files will never have non invalid data *past* the invalid data
+    // if this ends up being false, then will have to read block by block through invalid data aswell, and will have to handle the data differently on the server
+    u64 usedSize;
 
     bool _shouldUpdateHash = false;
 
@@ -39,7 +46,9 @@ struct FileInfo {
 
     bool operator==(const FileInfo& other) const {
         return path == other.path &&
-               size == other.size &&
+               totalSize == other.totalSize &&
+               // TODO support used size, read why above
+               //    usedSize == other.usedSize &&
                hash == other.hash;
     }
 };
@@ -55,6 +64,11 @@ public:
     // used by titleloader for game cards, DO NOT USE MANUALLY
     void setInvalid();
 
+    bool invalidHash() const;
+
+    u64 usedContainerSize(Container container);
+    char* totalUsedSizeStr();
+
     u64 id() const;
     u32 lowID() const;
     u32 highID() const;
@@ -68,6 +82,8 @@ public:
     FS_CardType cardType() const;
 
     std::string name() const;
+    const char* staticName() const;
+
     C2D_Image* icon();
 
     std::shared_ptr<Archive> openContainer(Container container) const;
@@ -80,7 +96,7 @@ public:
     std::vector<FileInfo> getContainerFiles(Container container) const;
 
     void setContainerFiles(std::vector<FileInfo>& files, Container container);
-    void hashContainer(Container container);
+    void hashContainer(Container container, std::shared_ptr<u8> buf = nullptr, size_t bufSize = 0x1000, Worker* worker = nullptr);
 
     Result deleteSecureSaveValue();
 
@@ -90,6 +106,8 @@ public:
 
 private:
     std::vector<FileInfo>& containerFiles(Container container);
+    u64& usedSize(Container container);
+    void updateUsedSizes();
 
     // to be run with a worker in the background
     void loadContainerFiles(Container container, bool cache = true, std::shared_ptr<Archive> archive = nullptr, bool lock = true);
@@ -97,16 +115,25 @@ private:
     bool loadSMDHData();
 
     bool loadCache();
-    void saveCache();
+    void saveCache(bool lockCache = true, bool lockContainer = true);
 
 private:
     bool m_valid;
     bool m_saveAccessible;
     bool m_extdataAccessible;
 
+    bool m_invalidHash;
+
+    // uses used size only, see FileInfo
+    u64 m_usedSaveSize;
+    u64 m_usedExtdataSize;
+
+    char m_totalUsedSizeStr[12];
+
+    Mutex m_cacheMutex;
     Mutex m_saveMutex;
     Mutex m_extdataMutex;
-    Mutex m_cacheMutex;
+    Mutex m_usedSizeMutex;
 
     u64 m_id;
     FS_MediaType m_mediaType;
@@ -117,7 +144,7 @@ private:
     std::vector<FileInfo> m_saveFiles;
     std::vector<FileInfo> m_extdataFiles;
 
-    std::string m_longDescription;
+    char m_longDescription[sizeof(SMDH::ApplicationTitle::longDescription)];
 
     std::shared_ptr<TexWrapper> m_tex;
     C2D_Image m_icon = { nullptr, nullptr };
