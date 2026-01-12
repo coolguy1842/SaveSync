@@ -17,13 +17,12 @@ jobs:
       - name: Configure
         run: catnip build debug
 
-      - name: Upload Artifacts
+      - name: Upload 3DSX
         uses: actions/upload-artifact@v4
         with:
-          name: Executables
-          path: |
-            build/SaveSync.debug/SaveSync.3dsx
-            build/SaveSync.debug/SaveSync.cia
+          name: 3DSX
+          path: build/SaveSync.debug/SaveSync.3dsx
+
   upload:
     runs-on: ubuntu-latest
     permissions:
@@ -35,4 +34,4 @@ jobs:
         uses: live-codes/pr-comment-from-artifact@v1
         with:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          artifact: Executables
+          artifact: 3DSX
