@@ -23,14 +23,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           PREVIOUS_JOB_ID=$(jq -r '.id' <<< "$WORKFLOW_RUN_EVENT_OBJ")
+          # Ensure PREVIOUS_JOB_ID is strictly numeric to avoid environment injection
+          PREVIOUS_JOB_ID="${PREVIOUS_JOB_ID//[^0-9]/}"
           SUITE_ID=$(jq -r '.check_suite_id' <<< "$WORKFLOW_RUN_EVENT_OBJ")
+          # Ensure SUITE_ID is strictly numeric to avoid environment injection
+          SUITE_ID="${SUITE_ID//[^0-9]/}"
           # Sample for a single artifact, can be improved for a multiple artifacts
           ARTIFACT_ID=$(gh api "/repos/${{ github.repository }}/actions/artifacts" \
             --jq ".artifacts.[] |
             select(.workflow_run.id==${PREVIOUS_JOB_ID}) |
             .id")
+          # Ensure ARTIFACT_ID is strictly numeric to avoid environment injection
+          ARTIFACT_ID="${ARTIFACT_ID//[^0-9]/}"
           echo "ARTIFACT_URL=https://github.com/${{ github.repository }}/suites/${SUITE_ID}/artifacts/${ARTIFACT_ID}" >> $GITHUB_ENV
           PR_NUMBER=$(jq -r '.pull_requests[0].number' <<< "$WORKFLOW_RUN_EVENT_OBJ")
+          # Ensure PR_NUMBER is strictly numeric to avoid environment injection
+          PR_NUMBER="${PR_NUMBER//[^0-9]/}"
           echo "PR_NUMBER=${PR_NUMBER}" >> $GITHUB_ENV
 
       - uses: actions/github-script@v6
