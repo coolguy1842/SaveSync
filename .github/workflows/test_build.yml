@@ -34,4 +34,5 @@ jobs:
       - name: Post comment
         uses: live-codes/pr-comment-from-artifact@v1
         with:
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          artifact: Executables
