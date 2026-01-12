@@ -21,8 +21,7 @@ public:
     void renderBottom();
 
 private:
-    void updateQueuedText(size_t queueSize, bool processing);
-    void updateRequestStatusText(std::string status);
+    void resetScroll();
     void onClientRequestFailed(std::string status);
 
 private:
@@ -71,9 +70,6 @@ private:
 
     std::string m_titleText, m_idText, m_mediaTypeText;
     Clay_String m_titleString = CLAY_STRING(""), m_idString = CLAY_STRING(""), m_mediaTypeString = CLAY_STRING("");
-
-    std::string m_networkQueueText, m_networkRequestText;
-    Clay_String m_networkQueueString = CLAY_STRING(""), m_networkRequestString = CLAY_STRING("");
 
     char m_percentText[5];
     int32_t m_percentTextLen;

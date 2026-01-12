@@ -20,13 +20,17 @@ While uploading/downloading, the program will disable home, sleep, and closing t
 ![Preview List]
 
 ## Issues
-The most recent 5 logs are stored in /3ds/SaveSync/logs. If the program was compiled in debug mode, the console can be toggled with L+X, and the screen swapped with R+X. Debug mode also shows a list of potential memory leaks when closing, shown after pressing the start button.
+The most recent 5 logs are stored in /3ds/SaveSync/logs. If the program was compiled in debug mode, the console can be toggled with L+X, and the screen swapped with R+X. Debug mode also shows a list of potential memory leaks when closing, shown after pressing the start button, note that the screen will flash when swapping to the leak viewer, this is because of how console toggling is implemented.
 You can print the profiler with L+Y, or R+Y, L will toggle the console on if it isn't active.
 
 ## Building
 ```sh
 git clone https://github.com/coolguy1842/SaveSync --recursive
 cd SaveSync
+catnip build
+
+OR
+
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j $(nproc)
 ```

@@ -14,10 +14,11 @@
 
 Result Client::noFilesUploadError() { return MAKERESULT(RL_TEMPORARY, RS_CANCELED, RM_APPLICATION, RD_CANCEL_REQUESTED); }
 Result Client::emptyUploadError() { return MAKERESULT(RL_TEMPORARY, RS_CANCELED, RM_APPLICATION, RD_ALREADY_EXISTS); }
+Result Client::finalizeUploadError() { return MAKERESULT(RL_TEMPORARY, RS_CANCELED, RM_APPLICATION, RD_NOT_AUTHORIZED); }
 
 // TODO: upload total size, and used size, some extdata & save files have uninitialized data, which must be preserved, as some games use it to check random things
-Result Client::beginUpload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::vector<std::string>& requestedFiles) {
-    Logger::info("Upload Begin", "Starting upload for {:X}, Container: {}", title->id(), getContainerName(container));
+Result Client::beginUpload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::set<std::string>& requestedFiles) {
+    Logger::info("Upload Begin", "Starting upload for {:016X}, Container: {}", title->id(), getContainerName(container));
 
     std::vector<FileInfo> files = title->getContainerFiles(container);
     if(files.size() <= 0) {
@@ -31,7 +32,7 @@ Result Client::beginUpload(std::shared_ptr<Title> title, Container container, st
     writer.StartObject();
     {
         writer.Key("id");
-        writer.Uint64(title->id());
+        writer.Uint64(title->uniqueID());
 
         writer.Key("container");
         writer.String(getContainerName(container).c_str());
@@ -46,7 +47,7 @@ Result Client::beginUpload(std::shared_ptr<Title> title, Container container, st
             writer.String(info.path.c_str());
 
             writer.Key("size");
-            writer.Uint64(info.totalSize);
+            writer.Uint64(info.size);
 
             writer.Key("hash");
 
@@ -131,7 +132,7 @@ Result Client::beginUpload(std::shared_ptr<Title> title, Container container, st
             return MAKERESULT(RL_PERMANENT, RS_INVALIDRESVAL, RM_APPLICATION, RD_INVALID_COMBINATION);
         }
 
-        requestedFiles.push_back(std::string(file.GetString(), file.GetStringLength()));
+        requestedFiles.emplace(std::string(file.GetString(), file.GetStringLength()));
     }
 
     ticket = std::string(document["ticket"].GetString(), document["ticket"].GetStringLength());
@@ -164,7 +165,7 @@ Result Client::uploadFile(const std::string& ticket, std::shared_ptr<File> file,
         },
 
         .read = ReadOptions{
-            .bufferSize = 0x1000,
+            .bufferSize = 0x8000,
             .dataSize   = static_cast<long>(fileSize),
             .callback   = [this, file, path, &fileSize, &fileReadOffset, &uploadingFake](char* data, size_t dataSize) {
                 if(fileReadOffset >= fileSize) {
@@ -219,8 +220,6 @@ Result Client::uploadFile(const std::string& ticket, std::shared_ptr<File> file,
     });
 
     CURLcode code = easy.perform();
-    Logger::info("Upload File", "Performed upload");
-
     setOnline(code == CURLE_OK);
 
     if(code != CURLE_OK) {
@@ -255,7 +254,6 @@ Result Client::endUpload(const std::string& ticket) {
     });
 
     CURLcode code = easy.perform();
-    Logger::info("Upload End", "Ticket: {} - Performed End", ticket);
     setOnline(code == CURLE_OK);
 
     if(code != CURLE_OK) {
@@ -295,92 +293,129 @@ Result Client::cancelUpload(const std::string& ticket) {
     return RL_SUCCESS;
 }
 
-Result Client::upload(std::shared_ptr<Title> title, Container container) {
+// TODO: migrate to v2, still must draw up docs for v2 API, should hopefully merge SAVE & EXTDATA uploading (not file structure) to make cancelling more safe
+Result Client::upload(std::shared_ptr<Title> title) {
     if(title == nullptr || !title->valid()) {
-        Logger::error("Upload", "Invalid title");
+        Logger::error("Upload", "Invalid Title");
         return MAKERESULT(RL_PERMANENT, RS_INVALIDARG, RM_APPLICATION, RD_INVALID_POINTER);
     }
 
-    title->reloadContainerFiles(container);
-    auto lock = title->containerMutex(container).lock();
+    title->reloadContainerFiles(SAVE);
+    title->reloadContainerFiles(EXTDATA);
 
-    std::shared_ptr<Archive> archive = title->openContainer(container);
-    if(archive == nullptr || !archive->valid()) {
-        Logger::warn("Upload", "Invalid archive {}", getContainerName(container));
-        return MAKERESULT(RL_PERMANENT, RS_NOTSUPPORTED, RM_APPLICATION, RD_INVALID_HANDLE);
+    struct ContainerInfo {
+        Container id;
+
+        std::shared_ptr<ScopedLock> lock;
+        std::shared_ptr<Archive> archive;
+
+        std::set<std::string> requestedFiles;
+        std::string ticket;
+    };
+
+    Result res     = RL_SUCCESS;
+    bool bothEmpty = true;
+
+    std::vector<ContainerInfo> containers;
+
+    u64 totalTransferSize = 0;
+    for(const Container& container : { SAVE, EXTDATA }) {
+        if(!title->containerAccessible(container)) {
+            continue;
+        }
+
+        Logger::info("Upload", "Locking, and opening container: {}", getContainerName(container));
+        ContainerInfo info = {
+            .id      = container,
+            .lock    = std::make_shared<ScopedLock>(title->containerMutex(container)),
+            .archive = title->openContainer(container),
+        };
+        Logger::info("Upload", "Locked, and opened");
+
+        if(info.archive == nullptr || !info.archive->valid()) {
+            continue;
+        }
+
+        // if nothing then skip container, mark as invalid
+        Result beginRes;
+        if(R_FAILED(beginRes = beginUpload(title, container, info.ticket, info.requestedFiles))) {
+            if(beginRes != noFilesUploadError() && beginRes != emptyUploadError()) {
+                beginRes = res;
+                return res;
+            }
+
+            continue;
+        }
+
+        bothEmpty = false;
+
+        const auto& existingFiles = title->getContainerFiles(container);
+        for(const auto& file : existingFiles) {
+            if(!info.requestedFiles.contains(file.path)) {
+                continue;
+            }
+
+            totalTransferSize += file.size;
+        }
+
+        containers.push_back(info);
     }
 
-    std::vector<std::string> requestedFiles;
-    std::string ticket;
-
-    Result res;
-    if(R_FAILED(res = beginUpload(title, container, ticket, requestedFiles))) {
-        return res;
-    }
-
-    for(const std::string& path : requestedFiles) {
-        std::shared_ptr<File> file = archive->openFile(path, FS_OPEN_READ, 0);
-        if(file == nullptr || !file->valid()) {
-            Logger::warn("Upload", "Invalid file: {}", path);
-
-            res = MAKERESULT(RL_PERMANENT, RS_INVALIDARG, RM_APPLICATION, RD_INVALID_SELECTION);
-            goto cancelExit;
-        }
-
-        u64 size = file->size();
-        if(size == U64_MAX) {
-            Logger::warn("Upload", "Failed to get file size: {}", path);
-
-            res = file->lastResult();
-            goto cancelExit;
-        }
-
-        m_progressMax += size;
-    }
-
-    requestProgressChangedSignal(m_progressCurrent, m_progressMax);
-    for(const std::string& path : requestedFiles) {
-        std::shared_ptr<File> file = archive->openFile(path, FS_OPEN_READ, 0);
-        if(file == nullptr || !file->valid()) {
-            Logger::warn("Upload", "Invalid file: {}", path);
-
-            res = MAKERESULT(RL_PERMANENT, RS_INVALIDARG, RM_APPLICATION, RD_INVALID_SELECTION);
-            goto cancelExit;
-        }
-
-        if(R_FAILED(res = uploadFile(ticket, file, path))) {
-            Logger::warn("Upload", "Failed to upload file: {}", path);
-
-            goto cancelExit;
-        }
+    if(bothEmpty) {
+        res = noFilesUploadError();
     }
 
     if(R_FAILED(res)) {
     cancelExit:
-        cancelUpload(ticket);
+        for(const ContainerInfo& container : containers) {
+            Logger::info("Upload", "Cancelling upload for container: {}", getContainerName(container.id));
+            cancelUpload(container.ticket);
+        }
 
         return res;
     }
 
-    if(R_FAILED(res = endUpload(ticket))) {
-        goto cancelExit;
+    m_progressMax     = totalTransferSize;
+    m_progressCurrent = 0;
+
+    for(const ContainerInfo& container : containers) {
+        for(const std::string& path : container.requestedFiles) {
+            std::shared_ptr<File> file = container.archive->openFile(path, FS_OPEN_READ, 0);
+            if(file == nullptr || !file->valid()) {
+                Logger::warn("Upload", "Invalid file: {}", path);
+
+                res = MAKERESULT(RL_PERMANENT, RS_INVALIDARG, RM_APPLICATION, RD_INVALID_SELECTION);
+                goto cancelExit;
+            }
+
+            if(R_FAILED(res = uploadFile(container.ticket, file, path))) {
+                Logger::warn("Upload", "Failed to upload file: {}", path);
+                goto cancelExit;
+            }
+        }
     }
 
-    {
+    res = RL_SUCCESS;
+    for(const ContainerInfo& container : containers) {
+        Result endRes;
+        if(R_FAILED(endRes = endUpload(container.ticket))) {
+            Logger::warn("Upload", "Failed to end for {}", getContainerName(container.id));
+            res = finalizeUploadError();
+
+            // TODO: unsafe for now, should cancel both save & extdata, but for now we can ignore it and just not update the hashes
+            continue;
+        }
+
         auto infoLock = m_cachedTitleInfoMutex.lock();
-        switch(container) {
-        case SAVE:    m_cachedTitleInfo[title->id()].save = title->getContainerFiles(container); break;
-        case EXTDATA: m_cachedTitleInfo[title->id()].extdata = title->getContainerFiles(container); break;
+        switch(container.id) {
+        case SAVE:    m_cachedTitleInfo[title->uniqueID()].save = title->getContainerFiles(container.id); break;
+        case EXTDATA: m_cachedTitleInfo[title->uniqueID()].extdata = title->getContainerFiles(container.id); break;
         default:      break;
         }
     }
 
-    Logger::info("Upload", "Ticket: {} - Updated container files", ticket);
-
     titleCacheChangedSignal();
-    titleInfoChangedSignal(title->id(), m_cachedTitleInfo[title->id()]);
+    titleInfoChangedSignal(title->id(), m_cachedTitleInfo[title->uniqueID()]);
 
-    Logger::info("Upload", "Ticket: {} - Sent cache signals", ticket);
-
-    return RL_SUCCESS;
+    return res;
 }

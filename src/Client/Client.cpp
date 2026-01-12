@@ -79,7 +79,7 @@ void Client::closeSOC() {
 Client::Client(std::string url)
     : m_valid(false)
     , m_url(url)
-    , m_requestWorker(std::make_unique<Worker>([this](Worker*) { queueWorkerMain(); }, 6, 0x10000))
+    , m_requestWorker(std::make_unique<Worker>([this](Worker*) { queueWorkerMain(); }, 6, 0x15000))
     , m_serverOnline(false)
     , m_titleInfoCached(false)
     , m_processRequests(true)
@@ -100,16 +100,15 @@ Client::~Client() {
     requestProgressChangedSignal.clear();
     titleCacheChangedSignal.clear();
     titleInfoChangedSignal.clear();
-    requestStatusChangedSignal.clear();
     requestFailedSignal.clear();
 
     if(!m_valid) {
         return;
     }
 
+    stopQueueWorker();
     m_valid = false;
 
-    stopQueueWorker();
     if(numClients != 0) {
         numClients--;
     }

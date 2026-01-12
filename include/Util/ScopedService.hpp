@@ -36,9 +36,21 @@ public:
     PTMU();
 };
 
+class PTMPLAYS : public ScopedService {
+public:
+    PTMPLAYS();
+};
+
 class MCUHWc : public ScopedService {
 public:
     MCUHWc();
+};
+
+class GFX : public ScopedService {
+public:
+    GFX(GSPGPU_FramebufferFormat topFormat, GSPGPU_FramebufferFormat bottomFormat, bool vrambuffers);
+    // init default
+    GFX();
 };
 }; // namespace Services
 

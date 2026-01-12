@@ -27,8 +27,8 @@ private:
     void updateURL();
     void tryUpdateClientURL(bool processing);
 
-    void checkTitleOutOfDate(std::shared_ptr<Title> title, Container redundant = SAVE);
-    void checkTitlesOutOfDate();
+    void checkTitleOutOfSync(std::shared_ptr<Title> title, Container _ = SAVE);
+    void checkTitlesOutOfSync();
 
     void initClay();
 

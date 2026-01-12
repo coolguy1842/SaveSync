@@ -49,6 +49,10 @@ void Client::stopQueueWorker(bool block) {
 }
 
 void Client::queueAction(QueuedRequest request) {
+    if(!m_valid) {
+        return;
+    }
+
     {
         auto lock = m_requestCondVar.mutex().lock();
         if(!m_requestQueue.emplace(request).second) {
@@ -62,10 +66,18 @@ void Client::queueAction(QueuedRequest request) {
 }
 
 void Client::sendQueueChangedSignal() {
+    if(!m_valid) {
+        return;
+    }
+
     networkQueueChangedSignal(m_requestQueue.size(), m_processingQueueRequest);
 }
 
 void Client::queueWorkerMain() {
+    if(!m_valid) {
+        return;
+    }
+
     bool checkOnline = false;
     while(!m_requestWorker->waitingForExit()) {
         if(!wifiEnabled()) {
@@ -138,55 +150,25 @@ void Client::queueWorkerMain() {
 
             Result res;
             switch(request.type) {
-            case QueuedRequest::UPLOAD: {
-                bool bothEmpty = true;
-
-                if(!request.title->containerAccessible(SAVE)) {
-                    goto skipSaveUpload;
-                }
-
-                if(R_FAILED(res = upload(request.title, SAVE))) {
-                    if(res != Client::emptyUploadError() && res != Client::noFilesUploadError()) {
-                        Logger::warn("Request Worker", "Failed to Upload Save {:X}", request.title->id());
-                        Logger::warn("Request Worker", res);
-
-                        m_processRequests = false;
-                        requestFailedSignal(std::format("Failed to Upload Save\n{}", request.title->name()));
-
+            case QueuedRequest::UPLOAD:
+                if(R_FAILED(res = upload(request.title))) {
+                    if(res == Client::emptyUploadError() || res == Client::noFilesUploadError()) {
+                        requestFailedSignal(std::format("No Files to Upload\n{}", request.title->name()));
                         break;
                     }
-                }
-                else {
-                    bothEmpty = false;
-                }
-
-            skipSaveUpload:
-                if(!request.title->containerAccessible(EXTDATA)) {
-                    goto skipExtdataUpload;
-                }
-
-                if(R_FAILED(res = upload(request.title, EXTDATA))) {
-                    if(res != Client::emptyUploadError() && res != Client::noFilesUploadError()) {
-                        Logger::warn("Request Worker", "Failed to Upload Extdata {:X}", request.title->id());
-                        Logger::warn("Request Worker", res);
-
-                        m_processRequests = false;
-                        requestFailedSignal(std::format("Failed to Upload Extdata\n{}", request.title->name()));
-
+                    else if(res == Client::finalizeUploadError()) {
+                        requestFailedSignal(std::format("Couldn't Finalize (part of?) the Upload\n{}", request.title->name()));
                         break;
                     }
-                }
-                else {
-                    bothEmpty = false;
-                }
 
-            skipExtdataUpload:
-                if(bothEmpty) {
-                    requestFailedSignal(std::format("No Files to Upload\n{}", request.title->name()));
+                    Logger::warn("Request Worker", "Failed to Upload {:016X}", request.title->id());
+                    Logger::warn("Request Worker", res);
+
+                    m_processRequests = false;
+                    requestFailedSignal(std::format("Failed to Upload\n{}", request.title->name()));
                 }
 
                 break;
-            }
             case QueuedRequest::DOWNLOAD: {
                 bool bothEmpty = true;
 
@@ -196,7 +178,7 @@ void Client::queueWorkerMain() {
 
                 if(R_FAILED(res = download(request.title, SAVE))) {
                     if(res != Client::emptyDownloadError()) {
-                        Logger::warn("Request Worker", "Failed to Download Save {:X}", request.title->id());
+                        Logger::warn("Request Worker", "Failed to Download Save {:016X}", request.title->id());
                         Logger::warn("Request Worker", res);
 
                         m_processRequests = false;
@@ -216,7 +198,7 @@ void Client::queueWorkerMain() {
 
                 if(R_FAILED(res = download(request.title, EXTDATA))) {
                     if(res != Client::emptyDownloadError()) {
-                        Logger::warn("Request Worker", "Failed to Download Extdata {:X}", request.title->id());
+                        Logger::warn("Request Worker", "Failed to Download Extdata {:016X}", request.title->id());
                         Logger::warn("Request Worker", res);
 
                         m_processRequests = false;

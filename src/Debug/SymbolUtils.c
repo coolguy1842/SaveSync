@@ -146,6 +146,7 @@ const symbol_map_entry* getSymbol(uintptr_t addr) {
     size_t left  = 0;
     size_t right = s_symbolMapSize - 1;
 
+    // binary search used to find symbol
     while(left <= right) {
         size_t mid = left + (right - left) / 2;
 

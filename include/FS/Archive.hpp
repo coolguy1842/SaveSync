@@ -26,6 +26,7 @@ public:
     Result lastResult() const;
 
     bool mkdir(std::u16string path, u32 attributes, bool recursive = false);
+    bool createFile(VarPath path, u64 size, u32 attributes);
 
     std::shared_ptr<Directory> openDirectory(std::u16string path = u"/");
     std::shared_ptr<File> openFile(VarPath path, u32 flags, u32 attributes);

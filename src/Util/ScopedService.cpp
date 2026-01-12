@@ -1,4 +1,5 @@
 #include <Util/ScopedService.hpp>
+#include <ext_ptmplays.h>
 #include <stdio.h>
 
 ScopedService::ScopedService(const std::function<Result()>& onInit, const std::function<Result()>& onDestruct)
@@ -29,5 +30,14 @@ Services::RomFS::RomFS()
 Services::PTMU::PTMU()
     : ScopedService([]() -> Result { return ptmuInit(); }, []() -> Result { ptmuExit(); return RL_SUCCESS; }) {}
 
+Services::PTMPLAYS::PTMPLAYS()
+    : ScopedService([]() -> Result { return ptmPlaysInit(); }, []() -> Result { ptmPlaysExit(); return RL_SUCCESS; }) {}
+
 Services::MCUHWc::MCUHWc()
     : ScopedService([]() -> Result { return mcuHwcInit(); }, []() -> Result { mcuHwcExit(); return RL_SUCCESS; }) {}
+
+Services::GFX::GFX(GSPGPU_FramebufferFormat topFormat, GSPGPU_FramebufferFormat bottomFormat, bool vrambuffers)
+    : ScopedService([topFormat, bottomFormat, vrambuffers]() -> Result { gfxInit(topFormat, bottomFormat, vrambuffers); return RL_SUCCESS; }, []() -> Result { gfxExit(); return RL_SUCCESS; }) {}
+
+Services::GFX::GFX()
+    : ScopedService([]() -> Result { gfxInitDefault(); return RL_SUCCESS; }, []() -> Result { gfxExit(); return RL_SUCCESS; }) {}

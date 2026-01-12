@@ -22,11 +22,10 @@ TitleLoader::~TitleLoader() {
     titlesFinishedLoadingSignal.clear();
     titleHashedSignal.clear();
 
-    m_cardWorker->signalShouldExit();
-    m_condVar.broadcast();
-
     m_loaderWorker->signalShouldExit();
     m_hashWorker->signalShouldExit();
+    m_cardWorker->signalShouldExit();
+    m_condVar.broadcast();
 
     m_loaderWorker->waitForExit();
     m_hashWorker->waitForExit();
@@ -105,11 +104,11 @@ bool TitleLoader::loadGameCardTitle() {
     cleanupLastCard();
 
     m_lastCardID = id;
-    Logger::info("Card Worker", "Loading {:X}", id);
+    Logger::info("Card Worker", "Loading {:016X}", id);
 
     std::shared_ptr<Title> title = std::make_shared<Title>(id, MEDIATYPE_GAME_CARD, CARD_CTR);
     if(title == nullptr || !title->valid()) {
-        Logger::info("Card Worker", "{:X} Invalid", id);
+        Logger::info("Card Worker", "{:016X} Invalid", id);
         return false;
     }
 
@@ -154,7 +153,7 @@ void TitleLoader::loadSDTitles(u32 numTitles) {
     }
 
     for(u64 id : ids) {
-        Logger::info("Load SD Titles", "Loading {:X}", id);
+        Logger::info("Load SD Titles", "Loading {:016X}", id);
 
         if(m_loaderWorker->waitingForExit()) {
             Logger::info("Load SD Titles", "Exiting early");
@@ -249,10 +248,9 @@ void TitleLoader::hashWorkerMain() {
     Logger::info("Hash Worker", "Hashing all titles");
 
     PROFILE_SCOPE("Hash All Titles");
-    std::map<Priority, std::vector<std::pair<std::shared_ptr<Title>, Container>>> containers = {
+    std::map<Priority, std::vector<std::shared_ptr<Title>>> priorities = {
         { HIGH, {} },
         { MEDIUM, {} },
-        { LOW, {} }
     };
 
     std::vector<std::shared_ptr<Title>> titles;
@@ -266,6 +264,7 @@ void TitleLoader::hashWorkerMain() {
             continue;
         }
 
+        bool hasAnyHash = false, allHashed = true;
         for(Container type : { SAVE, EXTDATA }) {
             if(m_hashWorker->waitingForExit()) {
                 Logger::info("Hash Worker", "Exiting early");
@@ -283,7 +282,6 @@ void TitleLoader::hashWorkerMain() {
                 continue;
             }
 
-            bool hasAnyHash = false, allHashed = true;
             for(auto file : files) {
                 if(!file.hash.has_value()) {
                     allHashed = false;
@@ -298,27 +296,39 @@ void TitleLoader::hashWorkerMain() {
 
                 hasAnyHash = true;
             }
-
-            containers[hasAnyHash ? (allHashed ? LOW : MEDIUM) : HIGH].push_back({ title, type });
         }
+
+        if(allHashed) {
+            continue;
+        }
+
+        priorities[hasAnyHash ? MEDIUM : HIGH].push_back(title);
     }
 
     // must do 0x1000 bytes at a time (1 block), or will miss out on non invalid data
-    constexpr size_t bufSize = 0x1000;
+    // as far as i have tested, azahar doesn't emulate the invalid data, so we can use bigger blocks for azahar
+    size_t bufSize = 0x1000;
+    if(EmulatorUtil::isEmulated()) {
+        bufSize = maxHashBufSize;
+    }
 
     std::shared_ptr<u8> hashBuf;
     hashBuf.reset(reinterpret_cast<u8*>(malloc(bufSize)));
 
-    for(const auto& entry : containers) {
-        for(const auto& pair : entry.second) {
-            pair.first->hashContainer(pair.second, hashBuf, bufSize, m_hashWorker.get());
+    for(auto& titleList : priorities) {
+        std::sort(titleList.second.begin(), titleList.second.end(), [](const std::shared_ptr<Title>& a, const std::shared_ptr<Title>& b) {
+            return a->totalContainerSize(SAVE) + a->totalContainerSize(EXTDATA) < b->totalContainerSize(SAVE) + b->totalContainerSize(EXTDATA);
+        });
 
+        for(const auto& title : titleList.second) {
+            title->hashContainer(SAVE, hashBuf, bufSize, m_hashWorker.get());
+            title->hashContainer(EXTDATA, hashBuf, bufSize, m_hashWorker.get());
             if(m_hashWorker->waitingForExit()) {
                 Logger::info("Hash Worker", "Exiting early");
                 return;
             }
 
-            titleHashedSignal(pair.first, pair.second);
+            titleHashedSignal(title);
         }
     }
 

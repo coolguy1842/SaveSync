@@ -18,7 +18,7 @@
 #define TITLE_ICON_WIDTH  48.0f
 #define TITLE_ICON_HEIGHT 48.0f
 
-#define TITLE_CACHE_VER "003"
+#define TITLE_CACHE_VER "002"
 
 enum Container {
     SAVE    = 0b01,
@@ -30,14 +30,7 @@ struct FileInfo {
 
     std::optional<std::string> hash = std::nullopt;
 
-    u64 totalSize;
-
-    // used size is the amount of initialized data, some files will have uninitialized data, e.g terraria & mario maker
-    // this will cause a file read to fail, so it must be handled properly by reading blocks at a time to determine the last "good" block
-    // i make an assumption that i'm not sure is correct: i assume that files will never have non invalid data *past* the invalid data
-    // if this ends up being false, then will have to read block by block through invalid data aswell, and will have to handle the data differently on the server
-    u64 usedSize;
-
+    u64 size;
     bool _shouldUpdateHash = false;
 
     bool operator<(const FileInfo& other) const {
@@ -46,9 +39,7 @@ struct FileInfo {
 
     bool operator==(const FileInfo& other) const {
         return path == other.path &&
-               totalSize == other.totalSize &&
-               // TODO support used size, read why above
-               //    usedSize == other.usedSize &&
+               size == other.size &&
                hash == other.hash;
     }
 };
@@ -66,8 +57,8 @@ public:
 
     bool invalidHash() const;
 
-    u64 usedContainerSize(Container container);
-    char* totalUsedSizeStr();
+    u64 totalContainerSize(Container container);
+    char* totalSizeStr();
 
     u64 id() const;
     u32 lowID() const;
@@ -100,14 +91,14 @@ public:
 
     Result deleteSecureSaveValue();
 
-    // bitmask of container
-    u8 outOfDate() const;
-    void setOutOfDate(u8 outOfDate);
+    bool isOutOfSync() const;
+    u8 outOfSync() const;
+    void setOutOfSync(u8 outOfSync);
 
 private:
     std::vector<FileInfo>& containerFiles(Container container);
-    u64& usedSize(Container container);
-    void updateUsedSizes();
+    u64& totalSize(Container container);
+    void updateTotalSizes();
 
     // to be run with a worker in the background
     void loadContainerFiles(Container container, bool cache = true, std::shared_ptr<Archive> archive = nullptr, bool lock = true);
@@ -125,15 +116,15 @@ private:
     bool m_invalidHash;
 
     // uses used size only, see FileInfo
-    u64 m_usedSaveSize;
-    u64 m_usedExtdataSize;
+    u64 m_totalSaveSize;
+    u64 m_totalExtdataSize;
 
-    char m_totalUsedSizeStr[12];
+    char m_totalSizeStr[12];
 
     Mutex m_cacheMutex;
     Mutex m_saveMutex;
     Mutex m_extdataMutex;
-    Mutex m_usedSizeMutex;
+    Mutex m_totalSizeMutex;
 
     u64 m_id;
     FS_MediaType m_mediaType;
@@ -149,7 +140,7 @@ private:
     std::shared_ptr<TexWrapper> m_tex;
     C2D_Image m_icon = { nullptr, nullptr };
 
-    u8 m_outOfDate;
+    u8 m_outOfSync;
 };
 
 #endif

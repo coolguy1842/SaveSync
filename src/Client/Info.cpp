@@ -23,9 +23,8 @@ constexpr std::optional<FileInfo> getFileInfo(const rapidjson::Value& val) {
     return FileInfo{
         .path = std::format("/{}", val["path"].GetString()),
 
-        .hash      = val["hash"].GetString(),
-        .totalSize = val["size"].GetUint64(),
-        .usedSize  = 0,
+        .hash = val["hash"].GetString(),
+        .size = val["size"].GetUint64(),
     };
 }
 

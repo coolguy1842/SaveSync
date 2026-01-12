@@ -50,7 +50,7 @@ public:
     bool wifiEnabled();
     bool serverOnline();
 
-    Result upload(std::shared_ptr<Title> title, Container container);
+    Result upload(std::shared_ptr<Title> title);
     Result download(std::shared_ptr<Title> title, Container container);
 
     std::unordered_map<u64, TitleInfo> cachedTitleInfo();
@@ -74,19 +74,19 @@ public:
 
     size_t requestQueueSize() const;
     std::set<QueuedRequest> requestQueue() const;
-    std::string requestStatus() const;
 
 public:
     rocket::thread_safe_signal<void(const size_t&, const bool&)> networkQueueChangedSignal;
     rocket::thread_safe_signal<void(const u64&, const u64&)> requestProgressChangedSignal;
     rocket::thread_safe_signal<void()> titleCacheChangedSignal;
     rocket::thread_safe_signal<void(const u64&, const TitleInfo&)> titleInfoChangedSignal;
-    rocket::thread_safe_signal<void(const std::string&)> requestStatusChangedSignal;
     rocket::thread_safe_signal<void(const std::string&)> requestFailedSignal;
 
 public:
     static Result noFilesUploadError();
     static Result emptyUploadError();
+
+    static Result finalizeUploadError();
 
     static Result emptyDownloadError();
 
@@ -114,7 +114,7 @@ private:
     };
 
     // ticket is the identifier for the upload (uuidv4), will be overwritten with the output ticket
-    Result beginUpload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::vector<std::string>& requestedFiles);
+    Result beginUpload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::set<std::string>& requestedFiles);
     Result beginDownload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::vector<DownloadAction>& fileActions);
 
     Result uploadFile(const std::string& ticket, std::shared_ptr<File> file, const std::string& path);

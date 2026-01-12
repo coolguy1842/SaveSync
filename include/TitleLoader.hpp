@@ -37,7 +37,7 @@ public:
 public:
     rocket::thread_safe_signal<void(const size_t&)> titlesLoadedChangedSignal;
     rocket::thread_safe_signal<void()> titlesFinishedLoadingSignal;
-    rocket::thread_safe_signal<void(const std::shared_ptr<Title>&, const Container&)> titleHashedSignal;
+    rocket::thread_safe_signal<void(const std::shared_ptr<Title>&)> titleHashedSignal;
 
 private:
     bool loadGameCardTitle();

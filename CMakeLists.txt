@@ -1,4 +1,12 @@
 cmake_minimum_required(VERSION 3.13)
+
+if(CATNIP)
+    catnip_package(SaveSync DEFAULT release)
+    catnip_add_preset(release TOOLSET 3ds BUILD_TYPE Release)
+    catnip_add_preset(debug TOOLSET 3ds BUILD_TYPE Debug)
+    return()
+endif()
+
 set(DEVKITPRO $ENV{DEVKITPRO})
 set(CMAKE_CXX_STANDARD 23)
 
@@ -143,6 +151,9 @@ ctr_add_graphics_target(${PROJECT_NAME}_gfx ATLAS
       ${PROJECT_SOURCE_DIR}/assets/icons/wifi_terrible.png
       ${PROJECT_SOURCE_DIR}/assets/icons/wifi_off.png
 
+	  ${PROJECT_SOURCE_DIR}/assets/icons/sync_upload.png
+      ${PROJECT_SOURCE_DIR}/assets/icons/sync_download.png
+
       ${PROJECT_SOURCE_DIR}/assets/icons/battery_0.png
       ${PROJECT_SOURCE_DIR}/assets/icons/battery_1.png
       ${PROJECT_SOURCE_DIR}/assets/icons/battery_2.png
@@ -204,7 +215,17 @@ else()
 	dkp_install_assets(${PROJECT_NAME}_romfs TARGETS ${PROJECT_NAME}_gfx)
 	ctr_create_3dsx(${PROJECT_NAME} SMDH ${PROJECT_NAME}.smdh ROMFS ${PROJECT_NAME}_romfs)
 	
-	if(EXISTS ${PROJECT_SOURCE_DIR}/makerom)
+	if(WIN32)
+		set(EXE_SUFFIX ".exe")
+	else()
+		set(EXE_SUFFIX "")
+	endif()
+
+	set(MAKEROM_PATH ${PROJECT_SOURCE_DIR}/makerom${EXE_SUFFIX})
+	set(BANNERTOOL_PATH ${PROJECT_SOURCE_DIR}/bannertool${EXE_SUFFIX})
+
+	message(${MAKEROM_PATH})
+	if(EXISTS ${MAKEROM_PATH})
 		set(CIA_FILE ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.cia)
 		set(BANNER_FILE ${CMAKE_CURRENT_BINARY_DIR}/banner.bnr)
 
@@ -226,10 +247,10 @@ else()
 			${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.smdh
 		)
 
-		if(EXISTS ${PROJECT_SOURCE_DIR}/bannertool)
+		if(EXISTS ${BANNERTOOL_PATH})
 			add_custom_command(
 				OUTPUT ${BANNER_FILE}
-				COMMAND ${PROJECT_SOURCE_DIR}/bannertool$<$<BOOL:${WIN32}>:.exe>
+				COMMAND ${BANNERTOOL_PATH}
 						makebanner
 						-o ${BANNER_FILE}
 						-i "${PROJECT_SOURCE_DIR}/assets/banner.png"
@@ -245,7 +266,7 @@ else()
 
 		add_custom_command(
 			OUTPUT ${CIA_FILE}
-			COMMAND ${PROJECT_SOURCE_DIR}/makerom$<$<BOOL:${WIN32}>:.exe> ${MAKEROM_ARGS}
+			COMMAND ${MAKEROM_PATH} ${MAKEROM_ARGS}
 			DEPENDS ${MAKEROM_DEPS}
 		)
 

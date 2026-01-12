@@ -28,8 +28,12 @@ public:
     bool flush();
     bool setSize(u64 size);
 
+    // U32_MAX if failed
+    u32 attributes();
+
     // U64_MAX if failed
     u64 size();
+
     // UINT32_MAX if failed
     u32 write(const std::vector<u8>& data, u64 offset, u32 flags = 0);
     u32 write(const void* data, u64 dataSize, u64 offset, u32 flags = 0);

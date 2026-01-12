@@ -19,7 +19,8 @@ Clay_Color Theme::Text() { return { 0xCB, 0xCB, 0xE0, 0xFF }; }
 Clay_Color Theme::Subtext0() { return { 0x69, 0x6C, 0x71, 0xFF }; }
 Clay_Color Theme::Subtext1() { return { 0x89, 0x8C, 0x91, 0xFF }; }
 
-Clay_Color Theme::Save() { return { 0x2B, 0xAC, 0xDB, 0xFF }; }
-Clay_Color Theme::SaveAndExtdata() { return { 0x5C, 0xFF, 0x5C, 0xFF }; }
+Clay_Color Theme::OutOfSync() { return { 0x2B, 0xAC, 0xDB, 0xFF }; }
+Clay_Color Theme::Bulk() { return { 0xFF, 0x4E, 0x4E, 0xFF }; }
+Clay_Color Theme::Upload() { return Theme::OutOfSync(); }
+Clay_Color Theme::Download() { return Theme::Bulk(); }
 Clay_Color Theme::Unknown() { return { 0x7A, 0x7A, 0x7A, 0xFF }; }
-Clay_Color Theme::Extdata() { return { 0xFF, 0x4E, 0x4E, 0xFF }; }

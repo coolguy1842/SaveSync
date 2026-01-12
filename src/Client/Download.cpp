@@ -34,7 +34,7 @@ Client::DownloadAction::Action Client::DownloadAction::actionValue(std::string t
 
 Result Client::emptyDownloadError() { return MAKERESULT(RL_TEMPORARY, RS_CANCELED, RM_APPLICATION, RD_ALREADY_EXISTS); }
 Result Client::beginDownload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::vector<Client::DownloadAction>& fileActions) {
-    Logger::info("Download Begin", "Starting Download for {:X}, Container: {}", title->id(), getContainerName(container));
+    Logger::info("Download Begin", "Starting Download for {:016X}, Container: {}", title->id(), getContainerName(container));
 
     std::vector<FileInfo> files = title->getContainerFiles(container);
 
@@ -44,7 +44,7 @@ Result Client::beginDownload(std::shared_ptr<Title> title, Container container, 
     writer.StartObject();
     {
         writer.Key("id");
-        writer.Uint64(title->id());
+        writer.Uint64(title->uniqueID());
 
         writer.Key("container");
         writer.String(getContainerName(container).c_str());
@@ -59,7 +59,7 @@ Result Client::beginDownload(std::shared_ptr<Title> title, Container container, 
             writer.String(info.path.c_str());
 
             writer.Key("size");
-            writer.Uint64(info.totalSize);
+            writer.Uint64(info.size);
 
             writer.Key("hash");
 
@@ -277,8 +277,8 @@ Result Client::download(std::shared_ptr<Title> title, Container container) {
             newFiles.push_back(FileInfo{
                 .path = fileAction.path,
 
-                .hash      = fileAction.hash,
-                .totalSize = fileAction.size.value_or(1),
+                .hash = fileAction.hash,
+                .size = fileAction.size.value_or(1),
 
                 ._shouldUpdateHash = fileAction.hash.has_value(),
             });
@@ -303,11 +303,47 @@ Result Client::download(std::shared_ptr<Title> title, Container container) {
             }
 
             if(size != fileAction.size) {
-                if(!file->setSize(fileAction.size.value_or(1))) {
-                    Logger::warn("Download Replace", "Failed to set file size: {}", fileAction.path);
+                switch(container) {
+                case EXTDATA: {
+                    u32 attributes = file->attributes();
+                    if(attributes == UINT32_MAX) {
+                        attributes = FS_ATTRIBUTE_ARCHIVE;
+                    }
 
-                    res = file->lastResult();
-                    goto cancelExit;
+                    file.reset();
+                    if(!archive->deleteFile(fileAction.path)) {
+                        Logger::warn("Download Replace", "Failed to delete old file: {}", fileAction.path);
+                        res = file->lastResult();
+
+                        goto cancelExit;
+                    }
+
+                    if(!archive->createFile(fileAction.path, fileAction.size.value_or(1), attributes)) {
+                        Logger::warn("Download Replace", "Failed to create new file: {}", fileAction.path);
+                        res = file->lastResult();
+
+                        goto cancelExit;
+                    }
+
+                    file = archive->openFile(fileAction.path, FS_OPEN_WRITE, 0);
+                    if(file == nullptr || !file->valid()) {
+                        Logger::warn("Download Replace", "Invalid file after recreating: {}", fileAction.path);
+
+                        res = MAKERESULT(RL_PERMANENT, RS_INTERNAL, RM_APPLICATION, RD_INVALID_SELECTION);
+                        goto cancelExit;
+                    }
+
+                    break;
+                }
+                default:
+                    if(!file->setSize(fileAction.size.value_or(1))) {
+                        Logger::warn("Download Replace", "Failed to set file size: {}", fileAction.path);
+
+                        res = file->lastResult();
+                        goto cancelExit;
+                    }
+
+                    break;
                 }
             }
 
@@ -331,8 +367,8 @@ Result Client::download(std::shared_ptr<Title> title, Container container) {
             newFiles.push_back(FileInfo{
                 .path = fileAction.path,
 
-                .hash      = fileAction.hash,
-                .totalSize = fileAction.size.value_or(1),
+                .hash = fileAction.hash,
+                .size = fileAction.size.value_or(1),
 
                 ._shouldUpdateHash = fileAction.hash.has_value(),
             });
@@ -397,8 +433,8 @@ Result Client::download(std::shared_ptr<Title> title, Container container) {
             newFiles.push_back(FileInfo{
                 .path = fileAction.path,
 
-                .hash      = fileAction.hash,
-                .totalSize = fileAction.size.value_or(1),
+                .hash = fileAction.hash,
+                .size = fileAction.size.value_or(1),
 
                 ._shouldUpdateHash = fileAction.hash.has_value(),
             });
@@ -452,7 +488,7 @@ Result Client::download(std::shared_ptr<Title> title, Container container) {
         title->setContainerFiles(newFiles, container);
     }
 
-    title->setOutOfDate(title->outOfDate() & ~container);
+    title->setOutOfSync(title->outOfSync() & ~container);
     if(R_FAILED(res = endDownload(ticket))) {
         Logger::warn("Download", "Failed to end download");
     }
