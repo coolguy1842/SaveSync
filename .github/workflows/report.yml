@@ -1,51 +1,22 @@
-# https://medium.com/@vlyskouski/github-actions-auto-reply-in-pull-requests-with-a-link-to-build-artifacts-ae1ef55034d8
-name: Bind Artifacts to Pull-Request
+name: Report Artifacts on Pull Request
 
-# Triggered by the name of the previos
 on:
   workflow_run:
-    workflows: [Test Build]
-    types: [completed]
-
-# Enable the option to post a comment
-permissions:
-  pull-requests: write
+    workflows: ["Test Build"]
+    types:
+      - completed
 
 jobs:
-  build:
+  upload:
     runs-on: ubuntu-latest
-    # Check that the previos workflow succeeded
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
-    steps:
-      - name: Get Artifacts Link
-        env:
-          WORKFLOW_RUN_EVENT_OBJ: ${{ toJSON(github.event.workflow_run) }}
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PREVIOUS_JOB_ID=$(jq -r '.id' <<< "$WORKFLOW_RUN_EVENT_OBJ")
-          SUITE_ID=$(jq -r '.check_suite_id' <<< "$WORKFLOW_RUN_EVENT_OBJ")
-          # Sample for a single artifact, can be improved for a multiple artifacts
-          ARTIFACT_ID=$(gh api "/repos/${{ github.repository }}/actions/artifacts" \
-            --jq ".artifacts.[] |
-            select(.workflow_run.id==${PREVIOUS_JOB_ID}) |
-            .id")
-          echo "ARTIFACT_URL=https://github.com/${{ github.repository }}/suites/${SUITE_ID}/artifacts/${ARTIFACT_ID}" >> $GITHUB_ENV
-          PR_NUMBER=$(jq -r '.pull_requests[0].number' <<< "$WORKFLOW_RUN_EVENT_OBJ")
-          echo "PR_NUMBER=${PR_NUMBER}" >> $GITHUB_ENV
+    permissions:
+      pull-requests: write
+    if: >
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
 
-      - uses: actions/github-script@v6
-        env:
-          PR_NUMBER: ${{ env.PR_NUMBER }}
-          PR_NOTES: |
-            Build artifacts:
-            | File |
-            |------|
-            | [SaveSync.3dsx](${{ env.ARTIFACT_URL }}) |
+    steps:
+      - name: Post comment
+        uses: live-codes/pr-comment-from-artifact@v1
         with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: process.env.PR_NUMBER,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: process.env.PR_NOTES
-            })
+          GITHUB_TOKEN: ${{ github.token }}
