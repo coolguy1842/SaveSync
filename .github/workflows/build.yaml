@@ -37,12 +37,7 @@ jobs:
       - name: Configure
         uses: docker://devkitpro/devkitarm
         with:
-          args: bash -c "git config --global --add safe.directory /github/workspace && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release"
-
-      - name: Build
-        uses: docker://devkitpro/devkitarm
-        with:
-          args: bash -c "git config --global --add safe.directory /github/workspace && cmake --build build"
+          args: bash -c "git config --global --add safe.directory /github/workspace && catnip build"
 
       - uses: ClementTsang/delete-tag-and-release@v0.3.1
         with:
@@ -66,8 +61,8 @@ jobs:
           prerelease: true
           body: Automatic release from master
           files: |
-            build/SaveSync.3dsx
-            build/SaveSync.cia
+            build/SaveSync.release/SaveSync.3dsx
+            build/SaveSync.release/SaveSync.cia
           tag_name: ${{ env.dev_tag }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -76,6 +71,6 @@ jobs:
         with:
           name: Executables
           path: |
-            build/SaveSync.3dsx
-            build/SaveSync.cia
+            build/SaveSync.release/SaveSync.3dsx
+            build/SaveSync.release/SaveSync.cia
           if-no-files-found: warn

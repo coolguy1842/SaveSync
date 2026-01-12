@@ -15,7 +15,23 @@ jobs:
           persist-credentials: false
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-        
-      - name: Build
-        run: cmake --build build
+        run: catnip build debug
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Executables
+          path: |
+            build/SaveSync.debug/SaveSync.3dsx
+            build/SaveSync.debug/SaveSync.cia
+  upload:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    needs: test_build
+
+    steps:
+      - name: Post comment
+        uses: live-codes/pr-comment-from-artifact@v1
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
