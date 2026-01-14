@@ -25,8 +25,6 @@ int main() {
         }
     }
 
-    Logger::info("main", "Closed Application");
-
     if(!aptShouldClose() && isDetectingLeaks()) {
         LeakViewerApplication app;
         while(app.loop()) {}

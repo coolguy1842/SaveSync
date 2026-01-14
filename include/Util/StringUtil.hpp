@@ -13,6 +13,8 @@ std::string toUTF8(const u16* str);
 
 std::u16string fromUTF8(const std::string& str);
 
+int formatFileSize(u64 size, char* buf, size_t bufSize);
+
 // https://stackoverflow.com/a/7869639
 constexpr u32 hash(const char* s, size_t off = 0) { return !s[off] ? 5381 : (hash(s, off + 1) * 33) ^ s[off]; }
 

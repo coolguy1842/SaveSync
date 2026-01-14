@@ -185,7 +185,7 @@ Result Client::downloadFile(const std::string& ticket, std::shared_ptr<File> fil
         .write = WriteOptions{
             .bufferSize = 0x100,
             .callback   = [this, file, path, &fileWriteOffset](char* data, size_t dataSize) {
-                u64 wrote = file->write(reinterpret_cast<u8*>(data), dataSize, fileWriteOffset);
+                u64 wrote = file->write(data, dataSize, fileWriteOffset);
                 if(wrote == 0 || wrote == U64_MAX) {
                     Logger::warn("Download File", "Invalid write: {} size: {}", path, wrote);
                     return static_cast<size_t>(CURL_READFUNC_ABORT);

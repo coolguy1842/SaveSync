@@ -119,14 +119,7 @@ void Title::updateTotalSizes() {
         }
     }
 
-    // https://stackoverflow.com/a/77278639
-    u64 usedSize            = m_totalSaveSize + m_totalExtdataSize;
-    const char* sizeNames[] = { "B", "KB", "MB", "GB", "TB" };
-
-    size_t i        = static_cast<size_t>(floor(log(usedSize) / log(1024)));
-    float humanSize = static_cast<float>(usedSize) / pow(1024, i);
-
-    snprintf(m_totalSizeStr, sizeof(m_totalSizeStr), "%.1f %s", humanSize, sizeNames[i]);
+    StringUtil::formatFileSize(m_totalSaveSize + m_totalExtdataSize, m_totalSizeStr, sizeof(m_totalSizeStr));
 }
 
 FS_MediaType Title::mediaType() const { return m_mediaType; }

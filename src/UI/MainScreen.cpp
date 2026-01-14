@@ -4,6 +4,7 @@
 #include <UI/MainScreen.hpp>
 #include <Util/ClayDefines.hpp>
 #include <Util/EmuUtil.hpp>
+#include <Util/StringUtil.hpp>
 #include <clay.h>
 #include <clay_renderer_C2D.hpp>
 
@@ -380,7 +381,7 @@ void MainScreen::ListLayout() {
                     .width  = CLAY_SIZING_PERCENT(1.0f),
                     .height = CLAY_SIZING_FIXED(SMDH::ICON_HEIGHT),
                 },
-                .padding        = CLAY_PADDING_ALL(padding),
+                .padding        = { padding, padding + 3, padding, padding },
                 .childGap       = 5,
                 .childAlignment = {
                     .y = CLAY_ALIGN_Y_CENTER,
@@ -391,13 +392,14 @@ void MainScreen::ListLayout() {
             const char* text = title->staticName();
             Clay_String str  = { .isStaticallyAllocated = false, .length = static_cast<int32_t>(strlen(text)), .chars = text };
 
+            QueuedRequest request = m_client->currentRequest();
+
             TitleIcon(title, SMDH::ICON_WIDTH - padding, SMDH::ICON_HEIGHT - padding, {});
             CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_GROW() }, .childGap = 2, .layoutDirection = CLAY_TOP_TO_BOTTOM } }) {
                 CLAY_TEXT(str, CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 16 }));
-                CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_GROW(), .height = CLAY_SIZING_GROW() } } }) {
+                CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_GROW(), .height = CLAY_SIZING_GROW() }, .padding = { 3, 0, 0, 0 } } }) {
                     Clay_TextElementConfig* textConfig = CLAY_TEXT_CONFIG({ .textColor = Theme::Subtext1(), .fontSize = 14 });
 
-                    QueuedRequest request = m_client->currentRequest();
                     if(request.title == title) {
                         switch(request.type) {
                         case QueuedRequest::UPLOAD:   CLAY_TEXT(CLAY_STRING("Uploading"), textConfig); break;
@@ -471,12 +473,29 @@ void MainScreen::ListLayout() {
                             HSPACER();
                             break;
                         }
+
+                        Clay_String sizeStr = { .isStaticallyAllocated = true, .length = static_cast<int32_t>(strlen(title->totalSizeStr())), .chars = title->totalSizeStr() };
+                        CLAY_TEXT(sizeStr, textConfig);
                     }
+                }
+            }
 
-                    Clay_String sizeStr = { .isStaticallyAllocated = true, .length = static_cast<int32_t>(strlen(title->totalSizeStr())), .chars = title->totalSizeStr() };
-                    CLAY_TEXT(sizeStr, textConfig);
+            if(request.title == title) {
+                CLAY_AUTO_ID({ .layout = { .padding = { 4, 4, 0, 0 }, .childGap = 2, .childAlignment = { .x = CLAY_ALIGN_X_CENTER }, .layoutDirection = CLAY_TOP_TO_BOTTOM } }) {
+                    Clay_TextElementConfig* textConfig = CLAY_TEXT_CONFIG({ .textColor = Theme::Subtext1(), .fontSize = 12 });
 
-                    HSPACER(3);
+                    char sizeText[32];
+
+                    int lenCur = StringUtil::formatFileSize(m_client->requestProgressCurrent(), sizeText, sizeof(sizeText));
+                    int lenMax = StringUtil::formatFileSize(m_client->requestProgressMax(), sizeText + lenCur, sizeof(sizeText) - static_cast<size_t>(lenCur));
+
+                    Clay_String curStr = { .isStaticallyAllocated = true, .length = static_cast<int32_t>(lenCur), .chars = sizeText };
+                    CLAY_TEXT(curStr, textConfig);
+
+                    CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_GROW(), .height = CLAY_SIZING_FIXED(2) } }, .backgroundColor = Theme::ButtonDisabled() });
+
+                    Clay_String maxStr = { .isStaticallyAllocated = true, .length = static_cast<int32_t>(lenMax), .chars = sizeText + lenCur };
+                    CLAY_TEXT(maxStr, textConfig);
                 }
             }
         }

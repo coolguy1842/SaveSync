@@ -191,7 +191,7 @@ Result Client::uploadFile(const std::string& ticket, std::shared_ptr<File> file,
                 }
 
                 for(; bytesRead < (readSize * round(dataSize / readSize));) {
-                    u64 read = file->read(reinterpret_cast<u8*>(data + bytesRead), readSize, fileReadOffset);
+                    u64 read = file->read(data + bytesRead, readSize, fileReadOffset);
                     if(read == U64_MAX) {
                         if(file->lastResult() == -0x26FFBA75) {
                             uploadingFake = true;
