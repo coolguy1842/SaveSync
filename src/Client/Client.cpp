@@ -76,10 +76,11 @@ void Client::closeSOC() {
     SOCInitialized = false;
 }
 
-Client::Client(std::string url)
+Client::Client(std::shared_ptr<TitleLoader> titleLoader, std::string url)
     : m_valid(false)
     , m_url(url)
-    , m_requestWorker(std::make_unique<Worker>([this](Worker*) { queueWorkerMain(); }, 6, 0x10000))
+    , m_titleLoader(titleLoader)
+    , m_requestWorker(std::make_unique<Worker>([this](Worker*) { queueWorkerMain(); }, 6, 0x15000))
     , m_serverOnline(false)
     , m_titleInfoCached(false)
     , m_processRequests(true)
@@ -100,20 +101,14 @@ Client::~Client() {
     requestProgressChangedSignal.clear();
     titleCacheChangedSignal.clear();
     titleInfoChangedSignal.clear();
-    requestStatusChangedSignal.clear();
     requestFailedSignal.clear();
 
     if(!m_valid) {
         return;
     }
 
+    stopQueueWorker();
     m_valid = false;
-
-    m_requestWorker->signalShouldExit();
-    m_requestCondVar.broadcast();
-
-    m_requestWorker->waitForExit();
-    m_requestWorker.reset();
 
     if(numClients != 0) {
         numClients--;
@@ -174,8 +169,8 @@ u64 Client::requestProgressMax() const { return m_progressMax; }
 
 QueuedRequest Client::currentRequest() const { return m_activeRequest.value_or(QueuedRequest{ .type = QueuedRequest::NONE, .title = nullptr }); }
 
-size_t Client::requestQueueSize() const { return m_requestQueue.size() + m_stagingRequestQueue.size(); }
-std::string Client::requestStatus() const { return m_requestStatus; }
+size_t Client::requestQueueSize() const { return m_requestQueue.size(); }
+std::set<QueuedRequest> Client::requestQueue() const { return m_requestQueue; }
 
 std::string Client::url() const { return m_url; }
 void Client::setURL(std::string url) { m_url = url; }

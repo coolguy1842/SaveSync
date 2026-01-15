@@ -5,6 +5,7 @@
 #include <curl/curl.h>
 
 #include <Title.hpp>
+#include <TitleLoader.hpp>
 #include <Util/CondVar.hpp>
 #include <Util/Mutex.hpp>
 #include <Util/Worker.hpp>
@@ -24,11 +25,8 @@ struct QueuedRequest {
     enum RequestType {
         NONE,
 
-        UPLOAD_SAVE,
-        DOWNLOAD_SAVE,
-
-        UPLOAD_EXTDATA,
-        DOWNLOAD_EXTDATA,
+        UPLOAD,
+        DOWNLOAD,
 
         RELOAD_TITLE_CACHE,
     };
@@ -42,7 +40,7 @@ struct QueuedRequest {
 
 class Client {
 public:
-    Client(std::string url = "");
+    Client(std::shared_ptr<TitleLoader> titleLoader, std::string url = "");
     ~Client();
 
     bool valid() const;
@@ -53,8 +51,8 @@ public:
     bool wifiEnabled();
     bool serverOnline();
 
-    Result upload(std::shared_ptr<Title> title, Container container);
-    Result download(std::shared_ptr<Title> title, Container container);
+    Result upload(std::shared_ptr<Title> title);
+    Result download(std::shared_ptr<Title> title);
 
     std::unordered_map<u64, TitleInfo> cachedTitleInfo();
     bool cachedTitleInfoLoaded() const;
@@ -62,7 +60,7 @@ public:
     void queueAction(QueuedRequest request);
 
     void startQueueWorker();
-    void stopQueueWorker();
+    void stopQueueWorker(bool block = true);
 
     bool processingQueueRequest() const;
     bool showRequestProgress() const;
@@ -76,19 +74,21 @@ public:
     QueuedRequest currentRequest() const;
 
     size_t requestQueueSize() const;
-    std::string requestStatus() const;
+    std::set<QueuedRequest> requestQueue() const;
 
 public:
     rocket::thread_safe_signal<void(const size_t&, const bool&)> networkQueueChangedSignal;
     rocket::thread_safe_signal<void(const u64&, const u64&)> requestProgressChangedSignal;
     rocket::thread_safe_signal<void()> titleCacheChangedSignal;
     rocket::thread_safe_signal<void(const u64&, const TitleInfo&)> titleInfoChangedSignal;
-    rocket::thread_safe_signal<void(const std::string&)> requestStatusChangedSignal;
     rocket::thread_safe_signal<void(const std::string&)> requestFailedSignal;
 
 public:
     static Result noFilesUploadError();
     static Result emptyUploadError();
+
+    static Result finalizeUploadError();
+    static Result finalizeDownloadError();
 
     static Result emptyDownloadError();
 
@@ -116,7 +116,7 @@ private:
     };
 
     // ticket is the identifier for the upload (uuidv4), will be overwritten with the output ticket
-    Result beginUpload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::vector<std::string>& requestedFiles);
+    Result beginUpload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::set<std::string>& requestedFiles);
     Result beginDownload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::vector<DownloadAction>& fileActions);
 
     Result uploadFile(const std::string& ticket, std::shared_ptr<File> file, const std::string& path);
@@ -148,9 +148,11 @@ private:
     bool m_valid;
     std::string m_url;
 
+    // used to refresh title hash
+    std::shared_ptr<TitleLoader> m_titleLoader;
+
     std::unique_ptr<Worker> m_requestWorker;
     std::set<QueuedRequest> m_requestQueue;
-    std::set<QueuedRequest> m_stagingRequestQueue;
 
     std::optional<QueuedRequest> m_activeRequest;
     ConditionVariable m_requestCondVar;
@@ -159,8 +161,6 @@ private:
 
     bool m_serverOnline;
     std::unordered_map<u64, TitleInfo> m_cachedTitleInfo;
-
-    std::string m_requestStatus;
 
     std::atomic<bool> m_titleInfoCached;
 

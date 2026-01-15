@@ -14,13 +14,15 @@
 
 Result Client::noFilesUploadError() { return MAKERESULT(RL_TEMPORARY, RS_CANCELED, RM_APPLICATION, RD_CANCEL_REQUESTED); }
 Result Client::emptyUploadError() { return MAKERESULT(RL_TEMPORARY, RS_CANCELED, RM_APPLICATION, RD_ALREADY_EXISTS); }
+Result Client::finalizeUploadError() { return MAKERESULT(RL_TEMPORARY, RS_CANCELED, RM_APPLICATION, RD_NOT_AUTHORIZED); }
 
-Result Client::beginUpload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::vector<std::string>& requestedFiles) {
-    Logger::info("Upload Begin", "Starting upload for {:X}, Container: {}", title->id(), getContainerName(container));
+// TODO: upload total size, and used size, some extdata & save files have uninitialized data, which must be preserved, as some games use it to check random things
+Result Client::beginUpload(std::shared_ptr<Title> title, Container container, std::string& ticket, std::set<std::string>& requestedFiles) {
+    Logger::info("Upload Begin", "Starting upload for {:016X}, Container: {}", title->id(), getContainerName(container));
 
     std::vector<FileInfo> files = title->getContainerFiles(container);
     if(files.size() <= 0) {
-        Logger::warn("Upload Begin", "No files found for {}", getContainerName(container));
+        Logger::info("Upload Begin", "No files found for {}", getContainerName(container));
         return noFilesUploadError();
     }
 
@@ -30,7 +32,7 @@ Result Client::beginUpload(std::shared_ptr<Title> title, Container container, st
     writer.StartObject();
     {
         writer.Key("id");
-        writer.Uint64(title->id());
+        writer.Uint64(title->uniqueID());
 
         writer.Key("container");
         writer.String(getContainerName(container).c_str());
@@ -73,7 +75,7 @@ Result Client::beginUpload(std::shared_ptr<Title> title, Container container, st
         .url            = std::format("{}/v1/upload/begin", url(), ticket),
         .method         = POST,
         .contentType    = "application/json",
-        .connectTimeout = 2,
+        .connectTimeout = 5,
 
         .read = ReadOptions{
             .dataSize = static_cast<long>(jsonStrSize),
@@ -106,11 +108,13 @@ Result Client::beginUpload(std::shared_ptr<Title> title, Container container, st
         Logger::warn("Upload Begin", "Invalid CURL code: {}", static_cast<int>(code));
         return performFailError();
     }
-    else if(easy.statusCode() == 204) {
+
+    switch(easy.statusCode()) {
+    case 200: break;
+    case 204:
         Logger::info("Upload Begin", "Status code is 204, stopping upload early");
         return emptyUploadError();
-    }
-    else if(easy.statusCode() != 200) {
+    default:
         Logger::warn("Upload Begin", "Invalid status code: {} != 200", easy.statusCode());
         return invalidStatusCodeError();
     }
@@ -128,13 +132,14 @@ Result Client::beginUpload(std::shared_ptr<Title> title, Container container, st
             return MAKERESULT(RL_PERMANENT, RS_INVALIDRESVAL, RM_APPLICATION, RD_INVALID_COMBINATION);
         }
 
-        requestedFiles.push_back(std::string(file.GetString(), file.GetStringLength()));
+        requestedFiles.emplace(std::string(file.GetString(), file.GetStringLength()));
     }
 
     ticket = std::string(document["ticket"].GetString(), document["ticket"].GetStringLength());
     return RL_SUCCESS;
 }
 
+// TODO: change to only upload real data
 Result Client::uploadFile(const std::string& ticket, std::shared_ptr<File> file, const std::string& path) {
     Logger::info("Upload File", "Ticket: {} - Uploading {}", ticket, path);
 
@@ -147,11 +152,12 @@ Result Client::uploadFile(const std::string& ticket, std::shared_ptr<File> file,
     u64 fileReadOffset = 0;
     CURLEasy easy;
 
+    bool uploadingFake = false;
     easy.setOptions({
         .url            = std::format("{}/v1/upload/{}/file?path={}", url(), ticket, easy.escape(path)),
         .method         = PUT,
         .contentType    = "application/octet-stream",
-        .connectTimeout = 2,
+        .connectTimeout = 5,
 
         .lowSpeed = LowSpeedOptions{
             .limit = 0,
@@ -159,20 +165,56 @@ Result Client::uploadFile(const std::string& ticket, std::shared_ptr<File> file,
         },
 
         .read = ReadOptions{
-            .bufferSize = 0x100,
+            .bufferSize = 0x8000,
             .dataSize   = static_cast<long>(fileSize),
-            .callback   = [this, file, path, &fileSize, &fileReadOffset](char* data, size_t dataSize) {
-                u64 read = file->read(reinterpret_cast<u8*>(data), dataSize, fileReadOffset);
-                if(read == 0 || read == U64_MAX) {
-                    Logger::warn("Upload File", "Invalid read: {} size: {}", path, read);
-                    return static_cast<size_t>(CURL_READFUNC_ABORT);
+            .callback   = [this, file, path, &fileSize, &fileReadOffset, &uploadingFake](char* data, size_t dataSize) {
+                if(fileReadOffset >= fileSize) {
+                    return 0U;
                 }
 
-                fileReadOffset += read;
-                m_progressCurrent += read;
-                requestProgressChangedSignal(m_progressCurrent, m_progressMax);
+                constexpr size_t readSize = 0x1000;
+                size_t bytesRead          = 0;
 
-                return static_cast<size_t>(read);
+                if(uploadingFake) {
+                doFakeUpload:
+                    size_t fakeSize = dataSize - bytesRead;
+
+                    if(fileReadOffset + fakeSize > fileSize) {
+                        fakeSize = fileSize - fileReadOffset;
+                    }
+
+                    memset(data + bytesRead, 0, fakeSize);
+                    fileReadOffset += fakeSize;
+                    m_progressCurrent += fakeSize;
+
+                    return bytesRead + fakeSize;
+                }
+
+                for(; bytesRead < (readSize * round(dataSize / readSize));) {
+                    u64 read = file->read(data + bytesRead, readSize, fileReadOffset);
+                    if(read == U64_MAX) {
+                        if(file->lastResult() == -0x26FFBA75) {
+                            uploadingFake = true;
+                            goto doFakeUpload;
+                        }
+
+                        return static_cast<size_t>(CURL_READFUNC_ABORT);
+                    }
+                    else if(read == 0) {
+                        break;
+                    }
+
+                    bytesRead += read;
+                    fileReadOffset += read;
+                    m_progressCurrent += read;
+                    requestProgressChangedSignal(m_progressCurrent, m_progressMax);
+
+                    if(read < readSize) {
+                        break;
+                    }
+                }
+
+                return static_cast<size_t>(bytesRead);
             },
         },
     });
@@ -184,7 +226,11 @@ Result Client::uploadFile(const std::string& ticket, std::shared_ptr<File> file,
         Logger::warn("Upload File", "Invalid CURL code: {}", static_cast<int>(code));
         return performFailError();
     }
-    else if(easy.statusCode() != 201 && easy.statusCode() != 204) {
+
+    switch(easy.statusCode()) {
+    case 201:
+    case 204: break;
+    default:
         Logger::warn("Upload File", "Invalid status code: {} != 201 || 204", easy.statusCode());
         return invalidStatusCodeError();
     }
@@ -199,7 +245,7 @@ Result Client::endUpload(const std::string& ticket) {
         .url            = std::format("{}/v1/upload/{}/end", url(), ticket),
         .method         = PUT,
         .noBody         = true,
-        .connectTimeout = 2,
+        .connectTimeout = 5,
 
         .read = ReadOptions{
             .dataSize = 0,
@@ -229,7 +275,7 @@ Result Client::cancelUpload(const std::string& ticket) {
         .url            = std::format("{}/v1/upload/{}", url(), ticket),
         .method         = DELETE,
         .noBody         = true,
-        .connectTimeout = 2,
+        .connectTimeout = 5,
     });
 
     CURLcode code = easy.perform();
@@ -247,93 +293,127 @@ Result Client::cancelUpload(const std::string& ticket) {
     return RL_SUCCESS;
 }
 
-Result Client::upload(std::shared_ptr<Title> title, Container container) {
+// TODO: migrate to v2, still must draw up docs for v2 API, should hopefully merge SAVE & EXTDATA uploading (not file structure) to make cancelling more safe
+Result Client::upload(std::shared_ptr<Title> title) {
     if(title == nullptr || !title->valid()) {
-        Logger::error("Upload", "Invalid title");
+        Logger::error("Upload", "Invalid Title");
         return MAKERESULT(RL_PERMANENT, RS_INVALIDARG, RM_APPLICATION, RD_INVALID_POINTER);
     }
 
-    title->reloadContainerFiles(container);
-    auto lock = title->containerMutex(container).lock();
+    title->reloadContainerFiles(SAVE);
+    title->reloadContainerFiles(EXTDATA);
 
-    std::shared_ptr<Archive> archive = title->openContainer(container);
-    if(archive == nullptr || !archive->valid()) {
-        Logger::warn("Upload", "Invalid archive {}", getContainerName(container));
-        return MAKERESULT(RL_PERMANENT, RS_NOTSUPPORTED, RM_APPLICATION, RD_INVALID_HANDLE);
+    struct ContainerInfo {
+        Container id;
+
+        std::shared_ptr<ScopedLock> lock;
+        std::shared_ptr<Archive> archive;
+
+        std::set<std::string> requestedFiles;
+        std::string ticket;
+    };
+
+    Result res     = RL_SUCCESS;
+    bool bothEmpty = true;
+
+    std::vector<ContainerInfo> containers;
+
+    u64 totalTransferSize = 0;
+    for(const Container& container : { SAVE, EXTDATA }) {
+        if(!title->containerAccessible(container)) {
+            continue;
+        }
+
+        ContainerInfo info = {
+            .id      = container,
+            .lock    = std::make_shared<ScopedLock>(title->containerMutex(container)),
+            .archive = title->openContainer(container),
+        };
+
+        if(info.archive == nullptr || !info.archive->valid()) {
+            continue;
+        }
+
+        // if nothing then skip container, mark as invalid
+        Result beginRes;
+        if(R_FAILED(beginRes = beginUpload(title, container, info.ticket, info.requestedFiles))) {
+            if(beginRes != noFilesUploadError() && beginRes != emptyUploadError()) {
+                beginRes = res;
+                return res;
+            }
+
+            continue;
+        }
+
+        bothEmpty = false;
+
+        const auto& existingFiles = title->getContainerFiles(container);
+        for(const auto& file : existingFiles) {
+            if(!info.requestedFiles.contains(file.path)) {
+                continue;
+            }
+
+            totalTransferSize += file.size;
+        }
+
+        containers.push_back(info);
     }
 
-    std::vector<std::string> requestedFiles;
-    std::string ticket;
-
-    Result res;
-    if(R_FAILED(res = beginUpload(title, container, ticket, requestedFiles))) {
-        if(res == emptyUploadError() || res == noFilesUploadError()) {
-            return res;
-        }
-
-        Logger::warn("Upload", "Failed to begin");
-        return res;
-    }
-
-    for(const std::string& path : requestedFiles) {
-        std::shared_ptr<File> file = archive->openFile(path, FS_OPEN_READ, 0);
-        if(file == nullptr || !file->valid()) {
-            Logger::warn("Upload", "Invalid file: {}", path);
-
-            res = MAKERESULT(RL_PERMANENT, RS_INVALIDARG, RM_APPLICATION, RD_INVALID_SELECTION);
-            goto cancelExit;
-        }
-
-        u64 size = file->size();
-        if(size == U64_MAX) {
-            Logger::warn("Upload", "Failed to get file size: {}", path);
-
-            res = file->lastResult();
-            goto cancelExit;
-        }
-
-        m_progressMax += size;
-    }
-
-    requestProgressChangedSignal(m_progressCurrent, m_progressMax);
-    for(const std::string& path : requestedFiles) {
-        std::shared_ptr<File> file = archive->openFile(path, FS_OPEN_READ, 0);
-        if(file == nullptr || !file->valid()) {
-            Logger::warn("Upload", "Invalid file: {}", path);
-
-            res = MAKERESULT(RL_PERMANENT, RS_INVALIDARG, RM_APPLICATION, RD_INVALID_SELECTION);
-            goto cancelExit;
-        }
-
-        if(R_FAILED(res = uploadFile(ticket, file, path))) {
-            Logger::warn("Upload", "Failed to upload file: {}", path);
-
-            goto cancelExit;
-        }
+    if(bothEmpty) {
+        res = noFilesUploadError();
     }
 
     if(R_FAILED(res)) {
     cancelExit:
-        cancelUpload(ticket);
+        for(const ContainerInfo& container : containers) {
+            Logger::info("Upload", "Cancelling upload for container: {}", getContainerName(container.id));
+            cancelUpload(container.ticket);
+        }
 
         return res;
     }
 
-    if(R_FAILED(res = endUpload(ticket))) {
-        goto cancelExit;
+    m_progressMax     = totalTransferSize;
+    m_progressCurrent = 0;
+
+    for(const ContainerInfo& container : containers) {
+        for(const std::string& path : container.requestedFiles) {
+            std::shared_ptr<File> file = container.archive->openFile(path, FS_OPEN_READ, 0);
+            if(file == nullptr || !file->valid()) {
+                Logger::warn("Upload", "Invalid file: {}", path);
+
+                res = MAKERESULT(RL_PERMANENT, RS_INVALIDARG, RM_APPLICATION, RD_INVALID_SELECTION);
+                goto cancelExit;
+            }
+
+            if(R_FAILED(res = uploadFile(container.ticket, file, path))) {
+                Logger::warn("Upload", "Failed to upload file: {}", path);
+                goto cancelExit;
+            }
+        }
     }
 
-    {
+    res = RL_SUCCESS;
+    for(const ContainerInfo& container : containers) {
+        Result endRes;
+        if(R_FAILED(endRes = endUpload(container.ticket))) {
+            Logger::warn("Upload", "Failed to end for {}", getContainerName(container.id));
+            res = finalizeUploadError();
+
+            // TODO: unsafe for now, should cancel both save & extdata, but for now we can ignore it and just not update the hashes
+            continue;
+        }
+
         auto infoLock = m_cachedTitleInfoMutex.lock();
-        switch(container) {
-        case SAVE:    m_cachedTitleInfo[title->id()].save = title->getContainerFiles(container); break;
-        case EXTDATA: m_cachedTitleInfo[title->id()].extdata = title->getContainerFiles(container); break;
+        switch(container.id) {
+        case SAVE:    m_cachedTitleInfo[title->uniqueID()].save = title->getContainerFiles(container.id); break;
+        case EXTDATA: m_cachedTitleInfo[title->uniqueID()].extdata = title->getContainerFiles(container.id); break;
         default:      break;
         }
     }
 
     titleCacheChangedSignal();
-    titleInfoChangedSignal(title->id(), m_cachedTitleInfo[title->id()]);
+    titleInfoChangedSignal(title->id(), m_cachedTitleInfo[title->uniqueID()]);
 
-    return RL_SUCCESS;
+    return res;
 }

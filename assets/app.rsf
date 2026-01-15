@@ -2,7 +2,10 @@ BasicInfo:
   Title                   : $(APP_TITLE)
   ProductCode             : $(APP_PRODUCT_CODE)
   Logo                    : Homebrew
-  
+
+RomFs:
+  RootPath                : romfs
+
 TitleInfo:
   Category                : Application
   UniqueId                : $(APP_UNIQUE_ID)
@@ -82,11 +85,10 @@ AccessControlInfo:
   SpecialMemoryArrange          : true
 
   # New3DS Exclusive Process Settings
-  # UNTESTED, I do not have a New3DS
   SystemModeExt                 : Legacy # Legacy(Default)/124MB/178MB  Legacy:Use Old3DS SystemMode
-  CpuSpeed                      : 804MHz # 268MHz(Default)/804MHz
-  EnableL2Cache                 : true # false(default)/true
-  CanAccessCore2                : true 
+  CpuSpeed                      : 268MHz # 268MHz(Default)/804MHz
+  EnableL2Cache                 : false # false(default)/true
+  CanAccessCore2                : false
 
   # Virtual Address Mappings
   IORegisterMapping:

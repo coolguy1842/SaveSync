@@ -20,13 +20,17 @@ While uploading/downloading, the program will disable home, sleep, and closing t
 ![Preview List]
 
 ## Issues
-The most recent 5 logs are stored in /3ds/SaveSync/logs. If the program was compiled in debug mode, the console can be toggled with L+X, and the screen swapped with R+X. Debug mode also shows a list of potential memory leaks when closing, shown after pressing the start button.
+The most recent 5 logs are stored in /3ds/SaveSync/logs. If the program was compiled in debug mode, the console can be toggled with L+X, and the screen swapped with R+X. Debug mode also shows a list of potential memory leaks when closing, shown after pressing the start button, note that the screen will flash when swapping to the leak viewer, this is because of how console toggling is implemented.
 You can print the profiler with L+Y, or R+Y, L will toggle the console on if it isn't active.
 
 ## Building
 ```sh
 git clone https://github.com/coolguy1842/SaveSync --recursive
 cd SaveSync
+catnip build
+
+OR
+
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j $(nproc)
 ```
@@ -40,6 +44,8 @@ For CIA format, drag makerom(.exe) into the base folder, and rebuild, for the ba
 - [ ] Second Confirm for Downloading, with Don't Show Again
 - [ ] Use Compression with HTTP
 - [ ] Better Caching System
+- [ ] Better Caching System
+- [ ] Handle Downloading for Games that use Files with Invalid Data
 
 ## Thanks To
 - [Checkpoint](https://github.com/BernardoGiordano/Checkpoint) Design inspiration, and code reference.
@@ -54,6 +60,7 @@ For CIA format, drag makerom(.exe) into the base folder, and rebuild, for the ba
 - [devkitNix](https://github.com/bandithedoge/devkitNix) Nix flake for devkitPro.
 - [cmake_timestamp](https://github.com/kraiskil/cmake_timestamp) Simple cmake include for time & git info
 - [indigodigi](https://indigodigi.com/) Redesigned Icon & Banner
+- [Material Symbols](fonts.google.com/icons)
 - Everyone in the Nintendo Homebrew discord who helped.
 
 <!-- resources -->

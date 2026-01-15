@@ -57,7 +57,6 @@ void LeakViewerApplication::initLeakList() {
         default:       info->allocatorString = "unknown"; break;
         }
 
-        printf("num traces: %d\n", node->tracesSize);
         for(int i = 0; i < node->tracesSize; i++) {
             const leak_list_trace& trace = node->traces[i];
 
@@ -68,8 +67,6 @@ void LeakViewerApplication::initLeakList() {
                 .offsetString            = std::format("{:X}", trace.offset),
                 .addressWithOffsetString = std::format("0x{:X}", trace.address + trace.offset),
             };
-
-            printf("label: %s\n", info->traces[i].labelString.c_str());
         }
 
         m_leakInfo.push_back(info);

@@ -6,13 +6,16 @@
 #define COLOR(name) Clay_Color name();
 
 namespace Theme {
-COLOR(Save)
-COLOR(SaveAndExtdata)
+COLOR(OutOfSync)
+COLOR(Bulk)
+COLOR(Upload)
+COLOR(Download)
 COLOR(Unknown)
-COLOR(Extdata)
 
 COLOR(Text)
 COLOR(Subtext0)
+COLOR(Subtext1)
+COLOR(Subtext2)
 
 COLOR(Red)
 COLOR(Green)

@@ -1,35 +1,25 @@
 #include <Config.hpp>
+#include <SaveSync_gfx.h>
 #include <Theme.hpp>
 #include <UI/MainScreen.hpp>
 #include <Util/ClayDefines.hpp>
+#include <Util/EmuUtil.hpp>
+#include <Util/StringUtil.hpp>
 #include <clay.h>
 #include <clay_renderer_C2D.hpp>
 
-#define _BADGE(...)                             \
-    CLAY_AUTO_ID({                              \
-        .layout = {                             \
-            .sizing = {                         \
-                .width  = CLAY_SIZING_FIXED(8), \
-                .height = CLAY_SIZING_FIXED(8), \
-            },                                  \
-        },                                      \
-        __VA_ARGS__,                            \
-        .custom = {                             \
-            &circleData,                        \
-        },                                      \
+#define BADGE(...)                                                                          \
+    CLAY_AUTO_ID({                                                                          \
+        .layout = {                                                                         \
+            .sizing = {                                                                     \
+                .width  = CLAY_SIZING_FIXED(8),                                             \
+                .height = CLAY_SIZING_FIXED(8),                                             \
+            },                                                                              \
+        },                                                                                  \
+        .backgroundColor = __VA_ARGS__,                                                     \
+        .cornerRadius    = CLAY_CORNER_RADIUS(8),                                           \
+        .border          = { .color = { 0, 0, 0, 0xFF }, .width = CLAY_BORDER_OUTSIDE(1) }, \
     })
-
-#define BADGE(...) _BADGE(.backgroundColor = __VA_ARGS__)
-
-void MainScreen::updateQueuedText(size_t queueSize, bool processing) {
-    m_networkQueueText   = std::format("{} Queued", queueSize - processing);
-    m_networkQueueString = Clay_String{ .isStaticallyAllocated = false, .length = static_cast<int32_t>(m_networkQueueText.size()), .chars = m_networkQueueText.c_str() };
-}
-
-void MainScreen::updateRequestStatusText(std::string status) {
-    m_networkRequestText   = status;
-    m_networkRequestString = Clay_String{ .isStaticallyAllocated = false, .length = static_cast<int32_t>(m_networkRequestText.size()), .chars = m_networkRequestText.c_str() };
-}
 
 void MainScreen::onClientRequestFailed(std::string status) {
     m_okText   = status;
@@ -38,16 +28,19 @@ void MainScreen::onClientRequestFailed(std::string status) {
     m_okActive = true;
 }
 
+void MainScreen::resetScroll() {
+    m_scroll = 0;
+}
+
 MainScreen::MainScreen(std::shared_ptr<Config> config, std::shared_ptr<TitleLoader> loader, std::shared_ptr<Client> client)
     : m_config(config)
     , m_loader(loader)
     , m_client(client)
     , m_settingsScreen(std::make_unique<SettingsScreen>(config))
-    , m_selectedTitle(0) {
-    // TODO: fix unmapped read with signals
-    m_client->networkQueueChangedSignal.connect<&MainScreen::updateQueuedText>(this);
-    m_client->requestStatusChangedSignal.connect<&MainScreen::updateRequestStatusText>(this);
+    , m_selectedTitle(0)
+    , m_sprites("romfs:/SaveSync_gfx.t3x") {
     m_client->requestFailedSignal.connect<&MainScreen::onClientRequestFailed>(this);
+    m_config->layout()->changedEmptySignal.connect<&MainScreen::resetScroll>(this);
 }
 
 void MainScreen::scrollToCurrent() {
@@ -62,38 +55,26 @@ void MainScreen::scrollToCurrent() {
     m_scroll = std::clamp(m_scroll, static_cast<u16>(0), static_cast<u16>(m_rows - m_visibleRows));
 }
 
-void MainScreen::tryUpload(Container titleContainer) {
+void MainScreen::tryUpload() {
     if(m_selectedTitle >= m_loader->titles().size()) {
         return;
     }
 
     auto title = m_loader->titles()[m_selectedTitle];
-    if(!title->containerAccessible(titleContainer) || title->getContainerFiles(titleContainer).empty()) {
+    if(title->getContainerFiles(SAVE).empty() && title->getContainerFiles(EXTDATA).empty()) {
         return;
     }
 
-    switch(titleContainer) {
-    case SAVE:    showYesNo("Upload Save", QueuedRequest::UPLOAD_SAVE, title); return;
-    case EXTDATA: showYesNo("Upload Extdata", QueuedRequest::UPLOAD_EXTDATA, title); return;
-    default:      return;
-    }
+    showYesNo("Upload Files", QueuedRequest::UPLOAD, title);
 }
 
-void MainScreen::tryDownload(Container titleContainer) {
+void MainScreen::tryDownload() {
     if(m_selectedTitle >= m_loader->titles().size()) {
         return;
     }
 
     auto title = m_loader->titles()[m_selectedTitle];
-    if(!title->containerAccessible(titleContainer)) {
-        return;
-    }
-
-    switch(titleContainer) {
-    case SAVE:    showYesNo("Download Save", QueuedRequest::DOWNLOAD_SAVE, title); return;
-    case EXTDATA: showYesNo("Download Extdata", QueuedRequest::DOWNLOAD_EXTDATA, title); return;
-    default:      return;
-    }
+    showYesNo("Download", QueuedRequest::DOWNLOAD, title);
 }
 
 void MainScreen::update() {
@@ -187,21 +168,20 @@ void MainScreen::update() {
     }
 
     if(kHeld & KEY_L && kDown & KEY_A && title != nullptr) {
-        tryUpload(SAVE);
+        tryUpload();
     }
     else if(kHeld & KEY_L && kDown & KEY_B && title != nullptr) {
-        tryDownload(SAVE);
+        tryDownload();
     }
+    // TODO: bulk here
     else if(kHeld & KEY_R && kDown & KEY_A && title != nullptr) {
-        tryUpload(EXTDATA);
     }
     else if(kHeld & KEY_R && kDown & KEY_B && title != nullptr) {
-        tryDownload(EXTDATA);
     }
 
     if(m_updateTitleInfo) {
         if(title != nullptr) {
-            m_titleText = title->longDescription();
+            m_titleText = title->name();
             m_idText    = std::format("ID: {:08X} ({})", title->lowID(), title->productCode());
 
             const char* mediaType;
@@ -245,17 +225,17 @@ void MainScreen::handleButtonHover(Clay_ElementId elementId, Clay_PointerData po
         return;
     }
 
-    if(elementId.id == CLAY_ID("SaveUpload").id) {
-        tryUpload(SAVE);
+    if(elementId.id == CLAY_ID("TitleUpload").id) {
+        tryUpload();
     }
-    else if(elementId.id == CLAY_ID("SaveDownload").id) {
-        tryDownload(SAVE);
+    else if(elementId.id == CLAY_ID("TitleDownload").id) {
+        tryDownload();
     }
-    else if(elementId.id == CLAY_ID("ExtdataUpload").id) {
-        tryUpload(EXTDATA);
+    else if(elementId.id == CLAY_ID("BulkUpload").id) {
+        // tryUpload();
     }
-    else if(elementId.id == CLAY_ID("ExtdataDownload").id) {
-        tryDownload(EXTDATA);
+    else if(elementId.id == CLAY_ID("BulkDownload").id) {
+        // tryDownload();
     }
     else if(elementId.id == CLAY_ID("Yes").id) {
         m_client->queueAction(m_yesNoAction);
@@ -310,36 +290,34 @@ Clay_Color borderColor(u8 timerID) {
     )
 
 const u16 iconGap = 2;
-
-static CustomElementData circleData = { .type = CUSTOM_ELEMENT_TYPE_CIRCLE };
 void MainScreen::TitleIcon(std::shared_ptr<Title> title, float width, float height, Clay_BorderElementConfig border) {
     CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_FIXED(width), .height = CLAY_SIZING_FIXED(height) } }, .image = { .imageData = title->icon() }, .border = border }) {
         Clay_Color color = Theme::Unknown();
-        if(m_client->cachedTitleInfoLoaded()) {
-            switch(title->outOfDate()) {
-            case SAVE | EXTDATA: color = Theme::SaveAndExtdata(); break;
-            case SAVE:           color = Theme::Save(); break;
-            case EXTDATA:        color = Theme::Extdata(); break;
-            default:             goto skipBadge;
+        if(!title->invalidHash() && m_client->cachedTitleInfoLoaded()) {
+            if(title->isOutOfSync()) {
+                color = Theme::OutOfSync();
+            }
+            else {
+                goto skipBadge;
             }
         }
 
-        _BADGE(
-                .backgroundColor = color,
-
-                .floating = {
-                    .offset = {
-                        .x = -3,
-                        .y = 3,
-                    },
-                    .attachPoints = {
-                        .element = CLAY_ATTACH_POINT_CENTER_CENTER,
-                        .parent  = CLAY_ATTACH_POINT_RIGHT_TOP,
-                    },
-                    .attachTo = CLAY_ATTACH_TO_PARENT,
-                    .clipTo   = CLAY_CLIP_TO_ATTACHED_PARENT,
-                }
-        );
+        CLAY_AUTO_ID({
+            .floating = {
+                .offset = {
+                    .x = -3,
+                    .y = 3,
+                },
+                .attachPoints = {
+                    .element = CLAY_ATTACH_POINT_CENTER_CENTER,
+                    .parent  = CLAY_ATTACH_POINT_RIGHT_TOP,
+                },
+                .attachTo = CLAY_ATTACH_TO_PARENT,
+                .clipTo   = CLAY_CLIP_TO_ATTACHED_PARENT,
+            },
+        }) {
+            BADGE(color);
+        }
 
     skipBadge:
     }
@@ -376,22 +354,34 @@ void MainScreen::ListLayout() {
     m_cols        = 1;
     m_rows        = m_loader->titles().size();
     m_visibleRows = floor((data.boundingBox.height + iconGap) / (SMDH::ICON_HEIGHT + iconGap));
-
     scrollToCurrent();
 
-    const u16 padding      = 2;
-    size_t titleTextOffset = 0;
-
-    for(size_t i = 0; i < m_loader->titles().size(); i++) {
+    const u16 padding = 2;
+    for(size_t i = m_renderedScroll; i < CLAY__MIN(m_renderedScroll + m_visibleRows + 1U, m_loader->titles().size()); i++) {
         auto title = m_loader->titles()[i];
 
+        Clay_Color networkColor = Theme::Background();
+        if(m_client->processingQueueRequest()) {
+            QueuedRequest request = m_client->currentRequest();
+            if(request.title != title) {
+                goto skipNetworkProgress;
+            }
+
+            switch(request.type) {
+            case QueuedRequest::UPLOAD:   networkColor = Theme::Upload(); break;
+            case QueuedRequest::DOWNLOAD: networkColor = Theme::Download(); break;
+            default:                      break;
+            }
+        }
+
+    skipNetworkProgress:
         CLAY_AUTO_ID({
             .layout = {
                 .sizing = {
                     .width  = CLAY_SIZING_PERCENT(1.0f),
                     .height = CLAY_SIZING_FIXED(SMDH::ICON_HEIGHT),
                 },
-                .padding        = CLAY_PADDING_ALL(padding),
+                .padding        = { padding, padding + 3, padding, padding },
                 .childGap       = 5,
                 .childAlignment = {
                     .y = CLAY_ALIGN_Y_CENTER,
@@ -399,63 +389,120 @@ void MainScreen::ListLayout() {
             },
             .backgroundColor = (i == m_selectedTitle ? Theme::Surface1() : Theme::Surface0()),
         }) {
-            const std::string& text = title->longDescription();
-            Clay_String str         = { .isStaticallyAllocated = false, .length = static_cast<int32_t>(text.size()), .chars = m_titleTexts.c_str() + titleTextOffset };
+            const char* text = title->staticName();
+            Clay_String str  = { .isStaticallyAllocated = false, .length = static_cast<int32_t>(strlen(text)), .chars = text };
 
-            if(m_titleTexts.size() < titleTextOffset + text.size()) {
-                i = m_loader->titles().size();
-                goto skipTitle;
-            }
+            QueuedRequest request = m_client->currentRequest();
 
             TitleIcon(title, SMDH::ICON_WIDTH - padding, SMDH::ICON_HEIGHT - padding, {});
-            titleTextOffset += text.size();
+            CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_GROW() }, .childGap = 2, .layoutDirection = CLAY_TOP_TO_BOTTOM } }) {
+                CLAY_TEXT(str, CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 16 }));
+                CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_GROW(), .height = CLAY_SIZING_GROW() }, .padding = { 3, 0, 0, 0 } } }) {
+                    Clay_TextElementConfig* textConfig = CLAY_TEXT_CONFIG({ .textColor = Theme::Subtext1(), .fontSize = 14 });
 
-            // only render text if in view as the clipping messes up the parent clipping
-            if(i >= m_renderedScroll && i < m_renderedScroll + m_visibleRows) {
-                CLAY_AUTO_ID({ .clip = { .horizontal = true } }) {
-                    CLAY_TEXT(str, CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 14 }));
+                    if(request.title == title) {
+                        switch(request.type) {
+                        case QueuedRequest::UPLOAD:   CLAY_TEXT(CLAY_STRING("Uploading"), textConfig); break;
+                        case QueuedRequest::DOWNLOAD: CLAY_TEXT(CLAY_STRING("Downloading"), textConfig); break;
+                        default:                      break;
+                        }
+
+                        CLAY_AUTO_ID({
+                            .layout = {
+                                .sizing         = { .width = CLAY_SIZING_GROW(), .height = CLAY_SIZING_GROW() },
+                                .padding        = { 20, 20, 0, 0 },
+                                .childAlignment = {
+                                    .y = CLAY_ALIGN_Y_CENTER,
+                                },
+                            },
+                        }) {
+                            CLAY_AUTO_ID(
+                                {
+                                    .layout = {
+                                        .sizing = {
+                                            .width  = CLAY_SIZING_PERCENT(1.0),
+                                            .height = CLAY_SIZING_FIXED(3),
+                                        },
+                                    },
+                                    .backgroundColor = Theme::ButtonDisabled(),
+                                },
+                            ) {
+                                CLAY_AUTO_ID(
+                                    {
+                                        .layout = {
+                                            .sizing = {
+                                                .width  = CLAY_SIZING_PERCENT(m_client->requestProgressCurrent() / CLAY__MAX(static_cast<float>(m_client->requestProgressMax()), 1.0f)),
+                                                .height = CLAY_SIZING_GROW(),
+                                            },
+                                        },
+                                        .backgroundColor = networkColor,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    else {
+                        if(m_client->cachedTitleInfoLoaded()) {
+                            if(title->isOutOfSync()) {
+                                CLAY_TEXT(CLAY_STRING("Not Synced"), textConfig);
+                            }
+                            else {
+                                CLAY_TEXT(CLAY_STRING("Synced"), textConfig);
+                            }
+                        }
+                        else {
+                            CLAY_TEXT(CLAY_STRING("Unknown"), textConfig);
+                        }
+
+                        HSPACER();
+                        for(auto req : m_client->requestQueue()) {
+                            if(req.title != title) {
+                                continue;
+                            }
+
+                            switch(req.type) {
+                            case QueuedRequest::UPLOAD:
+                                CLAY_TEXT(CLAY_STRING("Upload Queued"), textConfig);
+                                break;
+                            case QueuedRequest::DOWNLOAD:
+                                CLAY_TEXT(CLAY_STRING("Download Queued"), textConfig);
+                                break;
+                            default: break;
+                            }
+
+                            HSPACER();
+                            break;
+                        }
+
+                        Clay_String sizeStr = { .isStaticallyAllocated = true, .length = static_cast<int32_t>(strlen(title->totalSizeStr())), .chars = title->totalSizeStr() };
+                        CLAY_TEXT(sizeStr, textConfig);
+                    }
                 }
             }
 
-            HSPACER();
+            if(request.title == title) {
+                CLAY_AUTO_ID({ .layout = { .padding = { 4, 4, 0, 0 }, .childGap = 2, .childAlignment = { .x = CLAY_ALIGN_X_CENTER }, .layoutDirection = CLAY_TOP_TO_BOTTOM } }) {
+                    Clay_TextElementConfig* textConfig = CLAY_TEXT_CONFIG({ .textColor = Theme::Subtext1(), .fontSize = 12 });
 
-            CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_FIXED(68) }, .childAlignment = { .x = CLAY_ALIGN_X_RIGHT } } }) {
-                if(m_client->cachedTitleInfoLoaded()) {
-                    switch(title->outOfDate()) {
-                    case 0:
-                        CLAY_TEXT(CLAY_STRING("Synced"), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 14 }));
+                    char sizeText[32];
 
-                        break;
-                    default:
-                        CLAY_TEXT(CLAY_STRING("Not Synced"), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 14 }));
-                        break;
-                    }
+                    int lenCur = StringUtil::formatFileSize(m_client->requestProgressCurrent(), sizeText, sizeof(sizeText));
+                    int lenMax = StringUtil::formatFileSize(m_client->requestProgressMax(), sizeText + lenCur, sizeof(sizeText) - static_cast<size_t>(lenCur));
+
+                    Clay_String curStr = { .isStaticallyAllocated = true, .length = lenCur, .chars = sizeText };
+                    CLAY_TEXT(curStr, textConfig);
+
+                    CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_GROW(), .height = CLAY_SIZING_FIXED(2) } }, .backgroundColor = Theme::ButtonDisabled() });
+
+                    Clay_String maxStr = { .isStaticallyAllocated = false, .length = lenMax, .chars = sizeText + lenCur };
+                    CLAY_TEXT(maxStr, textConfig);
                 }
-                else {
-                    CLAY_TEXT(CLAY_STRING("Unknown"), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 14 }));
-                }
-            };
-
-        skipTitle:
+            }
         }
     }
 }
 
 void MainScreen::renderTop() {
-    size_t loadedTitles = m_loader->titlesLoaded();
-    if(m_prevLoadedTitles != loadedTitles) {
-        m_loadedText   = std::format("{}/{} Loaded", loadedTitles, m_loader->totalTitles());
-        m_loadedString = { .isStaticallyAllocated = false, .length = static_cast<int32_t>(m_loadedText.size()), .chars = m_loadedText.c_str() };
-
-        m_titleTexts.clear();
-
-        for(auto title : m_loader->titles()) {
-            m_titleTexts += title->longDescription();
-        }
-
-        m_prevLoadedTitles = loadedTitles;
-    }
-
     CLAY(
         CLAY_ID("Body"),
         {
@@ -474,115 +521,344 @@ void MainScreen::renderTop() {
             {
                 .layout = {
                     .sizing = {
-                        .width  = CLAY_SIZING_GROW(),
+                        .width  = CLAY_SIZING_FIXED(TOP_SCREEN_WIDTH),
                         .height = CLAY_SIZING_FIXED(16),
                     },
-                    .padding        = CLAY_PADDING_ALL(4),
+                    .padding        = { 8, 8, 0, 0 },
                     .childAlignment = { .y = CLAY_ALIGN_Y_CENTER },
                 },
                 .backgroundColor = Theme::Surface2(),
             }
         ) {
-            CLAY_TEXT(CLAY_STRING(EXE_NAME), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .wrapMode = CLAY_TEXT_WRAP_NONE }));
-            HSPACER();
+            Clay_TextElementConfig* textConfig = CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .wrapMode = CLAY_TEXT_WRAP_NONE, .textAlignment = CLAY_TEXT_ALIGN_CENTER });
+            CLAY(CLAY_ID("HeaderLeft"), { .layout = { .sizing = { .width = CLAY_SIZING_GROW() } } }) {
+                CLAY_AUTO_ID({ .layout = { .childGap = 2, .childAlignment = { .x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_CENTER } } }) {
+                    switch(m_client->serverOnline()) {
+                    case true:
+                        BADGE(Theme::Green());
+                        CLAY_TEXT(CLAY_STRING("Server Online"), textConfig);
 
+                        break;
+                    default:
+                        BADGE(Theme::Red());
+                        CLAY_TEXT(CLAY_STRING("Server Offline"), textConfig);
+
+                        break;
+                    }
+                }
+            }
+
+            CLAY(CLAY_ID("HeaderMiddle"), { .layout = { .sizing = { .width = CLAY_SIZING_GROW() }, .childAlignment = { .x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_CENTER } } }) {
 #define _STRINGIFY(a) #a
 #define STRINGIFY(a)  _STRINGIFY(a)
-            CLAY_TEXT(CLAY_STRING("v" STRINGIFY(VERSION_MAJOR) "." STRINGIFY(VERSION_MINOR) "." STRINGIFY(VERSION_PATCH)), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .wrapMode = CLAY_TEXT_WRAP_NONE }));
+                CLAY_TEXT(CLAY_STRING(EXE_NAME " v" STRINGIFY(VERSION_MAJOR) "." STRINGIFY(VERSION_MINOR) "." STRINGIFY(VERSION_PATCH)), textConfig);
 #undef _STRINGIFY
 #undef STRINGIFY
+            }
+
+            CLAY(CLAY_ID("HeaderRight"), { .layout = { .sizing = { .width = CLAY_SIZING_GROW() }, .childAlignment = { .x = CLAY_ALIGN_X_RIGHT, .y = CLAY_ALIGN_Y_CENTER } } }) {
+                time_t timeInfo;
+                time(&timeInfo);
+
+                char clockText[6];
+                size_t clockLen = strftime(clockText, sizeof(clockText), "%H:%M", localtime(&timeInfo));
+
+                Clay_String clockStr = { .isStaticallyAllocated = false, .length = static_cast<int32_t>(clockLen), .chars = clockText };
+                CLAY_TEXT(clockStr, textConfig);
+
+                if(!EmulatorUtil::isEmulated()) {
+                    HSPACER(5);
+                    C2D_Image* wifiImage = m_sprites.image(SaveSync_gfx_wifi_off_idx);
+
+                    bool wifiEnabled = m_client->wifiEnabled();
+                    if(wifiEnabled) {
+                        int wifiStrength = osGetWifiStrength();
+
+                        switch(wifiStrength) {
+                        case 0:  wifiImage = m_sprites.image(SaveSync_gfx_wifi_terrible_idx); break;
+                        case 1:  wifiImage = m_sprites.image(SaveSync_gfx_wifi_bad_idx); break;
+                        case 2:  wifiImage = m_sprites.image(SaveSync_gfx_wifi_decent_idx); break;
+                        case 3:
+                        default: wifiImage = m_sprites.image(SaveSync_gfx_wifi_good_idx); break;
+                        }
+                    }
+
+                    CLAY(
+                        CLAY_ID("WifiStrength"),
+                        {
+                            .layout = {
+                                .sizing = {
+                                    .width  = CLAY_SIZING_FIXED(static_cast<float>(wifiImage->subtex->width) / 2.0f),
+                                    .height = CLAY_SIZING_FIXED(static_cast<float>(wifiImage->subtex->height) / 2.0f),
+                                },
+                            },
+                            .image = { .imageData = wifiImage },
+                        }
+                    );
+
+                    size_t batteryImageIDX = SaveSync_gfx_battery_0_idx;
+                    static u8 prevPercent  = std::numeric_limits<u8>::max();
+
+                    u8 charging;
+                    u8 percent;
+                    u8 level;
+
+                    if(R_FAILED(PTMU_GetBatteryChargeState(&charging))) {
+                        charging = 0;
+                    }
+
+                    if(R_FAILED(PTMU_GetBatteryLevel(&level))) {
+                        level = 0;
+                    }
+
+                    if(R_FAILED(MCUHWC_GetBatteryLevel(&percent))) {
+                        percent = 0;
+                    }
+
+                    batteryImageIDX += level + (charging * 6U);
+                    C2D_Image* batteryImage = m_sprites.image(batteryImageIDX);
+
+                    CLAY(
+                        CLAY_ID("BatteryLevel"),
+                        {
+                            .layout = {
+                                .sizing = {
+                                    .width  = CLAY_SIZING_FIXED(static_cast<float>(batteryImage->subtex->width) / 2.0f),
+                                    .height = CLAY_SIZING_FIXED(static_cast<float>(batteryImage->subtex->height) / 2.0f),
+                                },
+                            },
+                            .image = { .imageData = batteryImage },
+                        }
+                    );
+
+                    if(prevPercent != percent) {
+                        m_percentTextLen = snprintf(m_percentText, sizeof(m_percentText), "%d%%", percent);
+                        prevPercent      = percent;
+                    }
+
+                    Clay_String percentStr = { .isStaticallyAllocated = true, .length = m_percentTextLen, .chars = m_percentText };
+                    CLAY_TEXT(percentStr, textConfig);
+                }
+            }
         }
 
-        m_renderedScroll = m_scroll;
-        CLAY(
-            CLAY_ID("Titles"),
-            {
-                .layout = {
-                    .sizing = {
-                        .width  = CLAY_SIZING_PERCENT(1.0),
-                        .height = CLAY_SIZING_GROW(),
+        CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_GROW(), .height = CLAY_SIZING_GROW() } } }) {
+            QueuedRequest request = m_client->currentRequest();
+            bool showSidebar      = m_config->layout()->value() == GRID && request.title != nullptr;
+
+            const float sidebarWidth     = 0.37f;
+            const float gridSidebarWidth = 1.0f - sidebarWidth;
+            m_renderedScroll             = m_scroll;
+
+            CLAY(
+                CLAY_ID("Titles"),
+                {
+                    .layout = {
+                        .sizing = {
+                            .width  = CLAY_SIZING_PERCENT(showSidebar ? gridSidebarWidth : 1.0f),
+                            .height = CLAY_SIZING_GROW(),
+                        },
+                        .padding         = { 0, 0, 5, 5 },
+                        .childGap        = iconGap,
+                        .layoutDirection = CLAY_TOP_TO_BOTTOM,
                     },
-                    .padding         = { 0, 0, 5, 5 },
-                    .childGap        = iconGap,
-                    .layoutDirection = CLAY_TOP_TO_BOTTOM,
-                },
-                .clip = {
-                    .vertical    = true,
-                    .childOffset = {
-                        .y = (m_renderedScroll * -static_cast<float>(SMDH::ICON_HEIGHT + iconGap)),
+                    .clip = {
+                        .vertical    = true,
+                        .childOffset = {
+                            .y = (m_config->layout()->value() != LIST ? m_renderedScroll * -static_cast<float>(SMDH::ICON_HEIGHT + iconGap) : 0),
+                        },
                     },
-                },
+                }
+            ) {
+                if(m_loader->isLoadingTitles()) {
+                    size_t loadedTitles = m_loader->titlesLoaded();
+                    if(m_prevLoadedTitles != loadedTitles) {
+                        m_loadedText   = std::format("{}/{} Loaded", loadedTitles, m_loader->totalTitles());
+                        m_loadedString = { .isStaticallyAllocated = false, .length = static_cast<int32_t>(m_loadedText.size()), .chars = m_loadedText.c_str() };
+
+                        m_prevLoadedTitles = loadedTitles;
+                    }
+
+                    CLAY(
+                        CLAY_ID("LoadingIndicator"),
+                        {
+                            .layout = {
+                                .sizing = {
+                                    .width  = CLAY_SIZING_GROW(),
+                                    .height = CLAY_SIZING_GROW(),
+                                },
+                                .childAlignment = {
+                                    .x = CLAY_ALIGN_X_CENTER,
+                                    .y = CLAY_ALIGN_Y_CENTER,
+                                },
+                                .layoutDirection = CLAY_TOP_TO_BOTTOM,
+                            },
+                        }
+                    ) {
+                        CLAY_TEXT(CLAY_STRING("Loading Titles..."), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 20 }));
+                        CLAY_TEXT(m_loadedString, CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 14 }));
+                    }
+                }
+                else {
+                    switch(m_config->layout()->value()) {
+                    case GRID: GridLayout(); break;
+                    case LIST: ListLayout(); break;
+                    default:   break;
+                    }
+                }
             }
-        ) {
-            if(m_loader->isLoadingTitles()) {
+
+            if(showSidebar) {
                 CLAY(
-                    CLAY_ID("LoadingIndicator"),
+                    CLAY_ID("Sidebar"),
                     {
                         .layout = {
                             .sizing = {
-                                .width  = CLAY_SIZING_GROW(),
+                                .width  = CLAY_SIZING_PERCENT(sidebarWidth),
                                 .height = CLAY_SIZING_GROW(),
                             },
+                            .padding        = { 4, 4, 20, 20 },
+                            .childGap       = 4,
                             .childAlignment = {
                                 .x = CLAY_ALIGN_X_CENTER,
-                                .y = CLAY_ALIGN_Y_CENTER,
                             },
                             .layoutDirection = CLAY_TOP_TO_BOTTOM,
                         },
+                        .backgroundColor = Theme::Surface1(),
                     }
                 ) {
-                    CLAY_TEXT(CLAY_STRING("Loading Titles..."), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 20 }));
-                    CLAY_TEXT(m_loadedString, CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 14 }));
-                }
-            }
-            else {
-                switch(m_config->layout()->value()) {
-                case GRID: GridLayout(); break;
-                case LIST: ListLayout(); break;
-                default:   break;
+                    Clay_TextElementConfig* largeTextConfig  = CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 18, .textAlignment = CLAY_TEXT_ALIGN_CENTER });
+                    Clay_TextElementConfig* textConfig       = CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .textAlignment = CLAY_TEXT_ALIGN_CENTER });
+                    Clay_TextElementConfig* textConfigDarker = CLAY_TEXT_CONFIG({ .textColor = Theme::Subtext2(), .fontSize = 12, .textAlignment = CLAY_TEXT_ALIGN_CENTER });
+                    Clay_TextElementConfig* smallTextConfig  = CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 11, .textAlignment = CLAY_TEXT_ALIGN_CENTER });
+
+                    const char* text = request.title->staticName();
+                    Clay_String str  = { .isStaticallyAllocated = false, .length = static_cast<int32_t>(strlen(text)), .chars = text };
+
+                    CLAY_TEXT(str, largeTextConfig);
+                    Clay_Color networkColor = Theme::Unknown();
+
+                    switch(request.type) {
+                    case QueuedRequest::UPLOAD:
+                        CLAY_TEXT(CLAY_STRING("Uploading"), textConfigDarker);
+                        networkColor = Theme::Upload();
+
+                        break;
+                    case QueuedRequest::DOWNLOAD:
+                        CLAY_TEXT(CLAY_STRING("Downloading"), textConfigDarker);
+                        networkColor = Theme::Download();
+
+                        break;
+                    default: break;
+                    }
+
+                    VSPACER();
+
+                    CLAY_AUTO_ID({ .layout = { .childGap = 2 } }) {
+                        const char* separatorText = " / ";
+
+                        char networkProgressText[32];
+                        int lenCur = StringUtil::formatFileSize(m_client->requestProgressCurrent(), networkProgressText, sizeof(networkProgressText));
+                        int offset = lenCur;
+
+                        if(offset < static_cast<int>(sizeof(networkProgressText))) {
+                            strcpy(networkProgressText + offset, separatorText);
+                            offset += static_cast<int32_t>(sizeof(separatorText)) - 1;
+                            offset += StringUtil::formatFileSize(m_client->requestProgressMax(), networkProgressText + offset, sizeof(networkProgressText) - static_cast<size_t>(offset));
+
+                            Clay_String networkProgressStr = { .isStaticallyAllocated = true, .length = offset, .chars = networkProgressText };
+                            CLAY_TEXT(networkProgressStr, smallTextConfig);
+                        }
+                    }
+
+                    float percent = m_client->requestProgressCurrent() / static_cast<float>(CLAY__MAX(m_client->requestProgressMax(), 1.0f));
+                    CLAY(
+                        CLAY_ID("RequestProgressOuter"),
+                        {
+                            .layout = {
+                                .sizing = {
+                                    .width  = CLAY_SIZING_PERCENT(0.8),
+                                    .height = CLAY_SIZING_FIXED(12),
+                                },
+                                .padding        = { 6, 6, 2, 2 },
+                                .childAlignment = { .y = CLAY_ALIGN_Y_CENTER },
+                            },
+                            .cornerRadius = CLAY_CORNER_RADIUS(4),
+
+                            .border = {
+                                .color = networkColor,
+                                .width = CLAY_BORDER_OUTSIDE(2),
+                            },
+                        },
+                    ) {
+                        CLAY(
+                            CLAY_ID("RequestProgressInner"),
+                            {
+                                .layout = {
+                                    .sizing = {
+                                        .width  = CLAY_SIZING_PERCENT(1.0),
+                                        .height = CLAY_SIZING_FIXED(4),
+                                    },
+                                },
+                                .backgroundColor = Theme::ButtonDisabled(),
+                            }
+                        ) {
+                            CLAY(
+                                CLAY_ID("RequestProgress"),
+                                {
+                                    .layout = {
+                                        .sizing = {
+                                            .width  = CLAY_SIZING_PERCENT(percent),
+                                            .height = CLAY_SIZING_FIXED(4),
+                                        },
+                                    },
+                                    .backgroundColor = networkColor,
+                                }
+                            );
+                        }
+                    }
+
+                    char progressPercentText[5];
+                    int lenPercent = snprintf(progressPercentText, sizeof(progressPercentText), "%d%%", static_cast<int>(percent * 100));
+
+                    Clay_String percentStr = { .isStaticallyAllocated = true, .length = lenPercent, .chars = progressPercentText };
+                    CLAY_TEXT(percentStr, textConfig);
                 }
             }
         }
+    }
 
-        CLAY(
-            CLAY_ID("Footer"),
-            {
-                .layout = {
-                    .sizing = {
-                        .width  = CLAY_SIZING_GROW(),
-                        .height = CLAY_SIZING_FIXED(16),
-                    },
-                    .padding        = CLAY_PADDING_ALL(4),
-                    .childGap       = 1,
-                    .childAlignment = { .y = CLAY_ALIGN_Y_CENTER },
+    CLAY(
+        CLAY_ID("Footer"),
+        {
+            .layout = {
+                .sizing = {
+                    .width  = CLAY_SIZING_GROW(),
+                    .height = CLAY_SIZING_FIXED(16),
                 },
-                .backgroundColor = Theme::Surface2(),
-            }
-        ) {
-            Clay_TextElementConfig* textConfig = CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12 });
-
-            BADGE(Theme::Save());
-            CLAY_TEXT(CLAY_STRING("Save"), textConfig);
-
-            HSPACER();
-
-            BADGE(Theme::SaveAndExtdata());
-            CLAY_TEXT(CLAY_STRING("Both"), textConfig);
-
-            HSPACER();
-
-            BADGE(Theme::Unknown());
-            CLAY_TEXT(CLAY_STRING("Unknown"), textConfig);
-
-            HSPACER();
-
-            BADGE(Theme::Extdata());
-            CLAY_TEXT(CLAY_STRING("Extdata"), textConfig);
+                .padding        = CLAY_PADDING_ALL(4),
+                .childGap       = 1,
+                .childAlignment = { .y = CLAY_ALIGN_Y_CENTER },
+            },
+            .backgroundColor = Theme::Surface2(),
         }
+    ) {
+        Clay_TextElementConfig* textConfig = CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12 });
+        HSPACER();
 
-        if(m_yesNoActive || m_okActive || m_settingsScreen->isActive()) {
-            YES_NO_OVERLAY;
-        }
+        BADGE(Theme::OutOfSync());
+        CLAY_TEXT(CLAY_STRING("Unsynced"), textConfig);
+
+        HSPACER();
+
+        BADGE(Theme::Unknown());
+        CLAY_TEXT(CLAY_STRING("Unknown"), textConfig);
+
+        HSPACER();
+    }
+
+    if(m_yesNoActive || m_okActive || m_settingsScreen->isActive()) {
+        YES_NO_OVERLAY;
     }
 }
 
@@ -613,17 +889,42 @@ void MainScreen::renderBottom() {
                         .width  = CLAY_SIZING_GROW(),
                         .height = CLAY_SIZING_FIXED(16),
                     },
-                    .padding        = CLAY_PADDING_ALL(4),
+                    .padding        = CLAY_PADDING_ALL(2),
+                    .childGap       = 4,
                     .childAlignment = { .y = CLAY_ALIGN_Y_CENTER },
                 },
                 .backgroundColor = Theme::Surface2(),
             }
         ) {
-            if(m_loader->isLoadingTitles()) {
-                CLAY_TEXT(CLAY_STRING("No Title"), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .wrapMode = CLAY_TEXT_WRAP_NONE }));
+            CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_GROW() } }, .clip = { .horizontal = true } }) {
+                if(m_loader->isLoadingTitles()) {
+                    CLAY_TEXT(CLAY_STRING("No Title"), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .wrapMode = CLAY_TEXT_WRAP_NONE }));
+                }
+                else {
+                    CLAY_TEXT(m_titleString, CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .wrapMode = CLAY_TEXT_WRAP_NONE }));
+                }
             }
-            else {
-                CLAY_TEXT(m_titleString, CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .wrapMode = CLAY_TEXT_WRAP_NONE }));
+
+            C2D_Image* image = nullptr;
+            switch(m_client->currentRequest().type) {
+            case QueuedRequest::UPLOAD:   image = m_sprites.image(SaveSync_gfx_sync_upload_idx); break;
+            case QueuedRequest::DOWNLOAD: image = m_sprites.image(SaveSync_gfx_sync_download_idx); break;
+            default:                      break;
+            }
+
+            if(image != nullptr) {
+                CLAY(
+                    CLAY_ID("SyncStatus"),
+                    {
+                        .layout = {
+                            .sizing = {
+                                .width  = CLAY_SIZING_FIXED(image->subtex->width / 2.0f),
+                                .height = CLAY_SIZING_FIXED(image->subtex->height / 2.0f),
+                            },
+                        },
+                        .image = { .imageData = image },
+                    }
+                );
             }
         }
 
@@ -641,45 +942,13 @@ void MainScreen::renderBottom() {
         CLAY(CLAY_ID("Details"), { .layout = { .sizing = { .width = CLAY_SIZING_PERCENT(1.0) }, .padding = CLAY_PADDING_ALL(2) } }) {
             CLAY(CLAY_ID("Info"), { .layout = { .layoutDirection = CLAY_TOP_TO_BOTTOM } }) {
                 CLAY_AUTO_ID({ .layout = { .childGap = 1, .childAlignment = { .y = CLAY_ALIGN_Y_CENTER } } }) {
-                    if(m_client->serverOnline()) {
-                        BADGE(Theme::Green());
-                        CLAY_TEXT(CLAY_STRING("Server Online"), CLAY_TEXT_CONFIG({ .textColor = Theme::Subtext0(), .fontSize = 12 }));
+                    if(!m_client->cachedTitleInfoLoaded()) {
+                        BADGE(Theme::Unknown());
+                        CLAY_TEXT(CLAY_STRING("Unknown"), CLAY_TEXT_CONFIG({ .textColor = Theme::Subtext0(), .fontSize = 12 }));
                     }
-                    else {
-                        BADGE(Theme::Red());
-                        CLAY_TEXT(CLAY_STRING("Server Offline"), CLAY_TEXT_CONFIG({ .textColor = Theme::Subtext0(), .fontSize = 12 }));
-                    }
-                }
-
-                if(m_client->serverOnline() && (!m_client->cachedTitleInfoLoaded() || title->outOfDate() != 0)) {
-                    CLAY_AUTO_ID({ .layout = { .childGap = 1, .childAlignment = { .y = CLAY_ALIGN_Y_CENTER } } }) {
-                        if(!m_client->cachedTitleInfoLoaded()) {
-                            BADGE(Theme::Unknown());
-                            CLAY_TEXT(CLAY_STRING("Unknown if Out of Date"), CLAY_TEXT_CONFIG({ .textColor = Theme::Subtext0(), .fontSize = 12 }));
-
-                            goto skipOutOfDate;
-                        }
-
-                        switch(title->outOfDate()) {
-                        case SAVE | EXTDATA:
-                            BADGE(Theme::SaveAndExtdata());
-                            CLAY_TEXT(CLAY_STRING("Save and Extdata Out of Date"), CLAY_TEXT_CONFIG({ .textColor = Theme::Subtext0(), .fontSize = 12 }));
-
-                            break;
-                        case SAVE:
-                            BADGE(Theme::Save());
-                            CLAY_TEXT(CLAY_STRING("Save Out of Date"), CLAY_TEXT_CONFIG({ .textColor = Theme::Subtext0(), .fontSize = 12 }));
-
-                            break;
-                        case EXTDATA:
-                            BADGE(Theme::Extdata());
-                            CLAY_TEXT(CLAY_STRING("Extdata Out of Date"), CLAY_TEXT_CONFIG({ .textColor = Theme::Subtext0(), .fontSize = 12 }));
-
-                            break;
-                        default: break;
-                        }
-
-                    skipOutOfDate:
+                    else if(title->isOutOfSync()) {
+                        BADGE(Theme::OutOfSync());
+                        CLAY_TEXT(CLAY_STRING("Out of Sync"), CLAY_TEXT_CONFIG({ .textColor = Theme::Subtext0(), .fontSize = 12 }));
                     }
                 }
 
@@ -731,101 +1000,20 @@ void MainScreen::renderBottom() {
                 }
             };
 
-            CLAY(CLAY_ID("SaveButtons"), { .layout = { .childGap = 2, .childAlignment = { .x = CLAY_ALIGN_X_CENTER }, .layoutDirection = CLAY_TOP_TO_BOTTOM } }) {
-                CLAY_TEXT(CLAY_STRING("Save"), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 13 }));
+            CLAY(CLAY_ID("TitleButtons"), { .layout = { .childGap = 2, .childAlignment = { .x = CLAY_ALIGN_X_CENTER }, .layoutDirection = CLAY_TOP_TO_BOTTOM } }) {
+                CLAY_TEXT(CLAY_STRING("Title"), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 13 }));
 
-                BUTTON(CLAY_ID("SaveUpload"), CLAY_STRING("Upload \uE004+\uE000"), !title->getContainerFiles(SAVE).empty() ? Theme::Save() : Theme::ButtonDisabled());
-                BUTTON(CLAY_ID("SaveDownload"), CLAY_STRING("Download \uE004+\uE001"), title->containerAccessible(SAVE) ? Theme::Save() : Theme::ButtonDisabled());
+                BUTTON(CLAY_ID("TitleUpload"), CLAY_STRING("Upload \uE004+\uE000"), !title->getContainerFiles(SAVE).empty() || !title->getContainerFiles(EXTDATA).empty() ? Theme::OutOfSync() : Theme::ButtonDisabled());
+                BUTTON(CLAY_ID("TitleDownload"), CLAY_STRING("Download \uE004+\uE001"), Theme::OutOfSync());
             }
 
-            CLAY(
-                CLAY_ID("NetworkDisplay"),
-                {
-                    .layout = {
-                        .sizing = {
-                            .width  = CLAY_SIZING_GROW(),
-                            .height = CLAY_SIZING_GROW(),
-                        },
-                        .childGap       = 2,
-                        .childAlignment = {
-                            .x = CLAY_ALIGN_X_CENTER,
-                            .y = CLAY_ALIGN_Y_BOTTOM,
-                        },
-                        .layoutDirection = CLAY_TOP_TO_BOTTOM,
-                    },
-                }
-            ) {
-                Clay_Color color = Theme::Accent();
-                switch(m_client->currentRequest().type) {
-                case QueuedRequest::UPLOAD_SAVE:
-                case QueuedRequest::DOWNLOAD_SAVE:
-                    color = Theme::Save();
-                    break;
-                case QueuedRequest::UPLOAD_EXTDATA:
-                case QueuedRequest::DOWNLOAD_EXTDATA:
-                    color = Theme::Extdata();
-                    break;
-                default: break;
-                }
+            HSPACER();
 
-                if(!m_client->processingQueueRequest() || !m_client->showRequestProgress()) {
-                    goto skipProgress;
-                }
+            CLAY(CLAY_ID("BulkButtons"), { .layout = { .childGap = 2, .childAlignment = { .x = CLAY_ALIGN_X_CENTER }, .layoutDirection = CLAY_TOP_TO_BOTTOM } }) {
+                CLAY_TEXT(CLAY_STRING("Bulk"), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 13 }));
 
-                CLAY(CLAY_ID("RequestText"), { .layout = { .sizing = { .width = CLAY_SIZING_PERCENT(0.8), .height = CLAY_SIZING_FIXED(24) }, .childAlignment = { .x = CLAY_ALIGN_X_CENTER } }, .clip = { .vertical = true } }) {
-                    CLAY_TEXT(m_networkRequestString, CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .textAlignment = CLAY_TEXT_ALIGN_CENTER }));
-                }
-
-                CLAY(
-                    CLAY_ID("RequestProgressOuter"),
-                    {
-                        .layout = {
-                            .sizing = {
-                                .width  = CLAY_SIZING_PERCENT(0.8),
-                                .height = CLAY_SIZING_FIXED(12),
-                            },
-                            .padding        = { 6, 6, 2, 2 },
-                            .childAlignment = {
-                                .x = CLAY_ALIGN_X_CENTER,
-                                .y = CLAY_ALIGN_Y_CENTER,
-                            },
-                        },
-                        .cornerRadius = CLAY_CORNER_RADIUS(4),
-
-                        .border = {
-                            .color = color,
-                            .width = CLAY_BORDER_OUTSIDE(2),
-                        },
-                    },
-                ) {
-                    CLAY(
-                        CLAY_ID("RequestProgress"),
-                        {
-                            .layout = {
-                                .sizing = {
-                                    .width  = CLAY_SIZING_PERCENT((m_client->requestProgressCurrent() / (float)CLAY__MAX(1, m_client->requestProgressMax()))),
-                                    .height = CLAY_SIZING_FIXED(4),
-                                },
-                            },
-                            .backgroundColor = color,
-                        }
-                    );
-                }
-
-            skipProgress:
-                if(m_client->requestQueueSize() > m_client->processingQueueRequest() ? 1 : 0) {
-                    CLAY_TEXT(m_networkQueueString, CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 10 }));
-                }
-                else {
-                    VSPACER(10);
-                }
-            }
-
-            CLAY(CLAY_ID("ExtdataButtons"), { .layout = { .childGap = 2, .childAlignment = { .x = CLAY_ALIGN_X_CENTER }, .layoutDirection = CLAY_TOP_TO_BOTTOM } }) {
-                CLAY_TEXT(CLAY_STRING("Extdata"), CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 13 }));
-
-                BUTTON(CLAY_ID("ExtdataUpload"), CLAY_STRING("Upload \uE005+\uE000"), !title->getContainerFiles(EXTDATA).empty() ? Theme::Extdata() : Theme::ButtonDisabled());
-                BUTTON(CLAY_ID("ExtdataDownload"), CLAY_STRING("Download \uE005+\uE001"), title->containerAccessible(EXTDATA) ? Theme::Extdata() : Theme::ButtonDisabled());
+                BUTTON(CLAY_ID("BulkUpload"), CLAY_STRING("Upload \uE005+\uE000"), Theme::Bulk());
+                BUTTON(CLAY_ID("BulkDownload"), CLAY_STRING("Download \uE005+\uE001"), Theme::Bulk());
             }
         }
 

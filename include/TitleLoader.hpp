@@ -9,6 +9,7 @@
 #include <atomic>
 #include <list>
 #include <memory>
+#include <optional>
 #include <rocket.hpp>
 #include <stack>
 #include <vector>
@@ -36,7 +37,7 @@ public:
 public:
     rocket::thread_safe_signal<void(const size_t&)> titlesLoadedChangedSignal;
     rocket::thread_safe_signal<void()> titlesFinishedLoadingSignal;
-    rocket::thread_safe_signal<void(const std::shared_ptr<Title>&, const Container&)> titleHashedSignal;
+    rocket::thread_safe_signal<void(const std::shared_ptr<Title>&)> titleHashedSignal;
 
 private:
     bool loadGameCardTitle();
@@ -45,6 +46,8 @@ private:
     void cardWorkerMain();
     void loadWorkerMain();
     void hashWorkerMain();
+
+    bool gameCardSupported();
 
 private:
     Mutex m_titlesMutex;
@@ -64,7 +67,6 @@ private:
 
     // watches for changes in the game card
     std::unique_ptr<Worker> m_cardWorker;
-
     std::unique_ptr<Worker> m_loaderWorker;
     std::unique_ptr<Worker> m_hashWorker;
 

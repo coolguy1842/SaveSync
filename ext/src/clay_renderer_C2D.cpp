@@ -22,12 +22,11 @@ struct CacheEntry {
 
 // key is clay id, use ptr to clear memory fully
 static std::map<uint32_t, CacheEntry> s_textCache;
-
 void C2D_Clay_Init() {
     gfxInitDefault();
 
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
-    C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
+    C2D_Init(0x4000);
 
     C2D_Prepare();
 }
@@ -138,32 +137,40 @@ void C2D_Clay_FilledArc(const float centerX, const float centerY, const float ra
 
 void C2D_Clay_Rect(const Clay_BoundingBox bounds, const Clay_CornerRadius radius, const Clay_Color color) {
     const u32 clr = C2D_CLAY_COLOR(color);
-    if(radius.topLeft == 0 && radius.topRight == 0 && radius.bottomLeft == 0 && radius.bottomRight == 0) {
+    if(radius.topLeft <= 0.0f && radius.topRight <= 0.0f && radius.bottomLeft <= 0.0f && radius.bottomRight <= 0.0f) {
         C2D_DrawRectSolid(bounds.x, bounds.y, 0.0, bounds.width, bounds.height, clr);
         return;
     }
 
-    const float top    = CLAY__MAX(radius.topLeft, radius.topRight);
-    const float bottom = CLAY__MAX(radius.bottomLeft, radius.bottomRight);
+    const float minRadius                = CLAY__MIN(bounds.width, bounds.height) / 2.0f;
+    const Clay_CornerRadius clampedRadii = {
+        .topLeft     = CLAY__MIN(radius.topLeft, minRadius),
+        .topRight    = CLAY__MIN(radius.topRight, minRadius),
+        .bottomLeft  = CLAY__MIN(radius.bottomLeft, minRadius),
+        .bottomRight = CLAY__MIN(radius.bottomRight, minRadius)
+    };
 
-    const float topX    = bounds.x + radius.topLeft;
-    const float bottomX = bounds.x + radius.bottomLeft;
+    const float top    = CLAY__MAX(clampedRadii.topLeft, clampedRadii.topRight);
+    const float bottom = CLAY__MAX(clampedRadii.bottomLeft, clampedRadii.bottomRight);
+
+    const float topX    = bounds.x + clampedRadii.topLeft;
+    const float bottomX = bounds.x + clampedRadii.bottomLeft;
     const float y       = bounds.y + top;
 
-    const float topWidth    = bounds.width - (radius.topLeft + radius.topRight);
-    const float bottomWidth = bounds.width - (radius.bottomLeft + radius.bottomRight);
+    const float topWidth    = bounds.width - (clampedRadii.topLeft + clampedRadii.topRight);
+    const float bottomWidth = bounds.width - (clampedRadii.bottomLeft + clampedRadii.bottomRight);
 
     const float height = bounds.height - (top + bottom);
 
-    if(radius.topLeft != 0) C2D_Clay_FilledArc(topX, y, radius.topLeft, 180.0f, 270.0f, color);              // top left
-    C2D_DrawRectSolid(topX, bounds.y, 0.0f, topWidth, top, clr);                                             // top
-    if(radius.topRight != 0) C2D_Clay_FilledArc(topX + topWidth, y, radius.topRight, 270.0f, 360.0f, color); // top right
+    if(clampedRadii.topLeft > 0.0f) C2D_Clay_FilledArc(topX, y, clampedRadii.topLeft, 180.0f, 270.0f, color);              // top left
+    C2D_DrawRectSolid(topX, bounds.y, 0.0f, topWidth, top, clr);                                                           // top
+    if(clampedRadii.topRight > 0.0f) C2D_Clay_FilledArc(topX + topWidth, y, clampedRadii.topRight, 270.0f, 360.0f, color); // top right
 
     C2D_DrawRectSolid(bounds.x, y, 0.0, bounds.width, height, clr); // center
 
-    if(radius.bottomLeft != 0) C2D_Clay_FilledArc(bottomX, y + height, radius.bottomLeft, 90.0f, 180.0f, color);               // bottom left
-    C2D_DrawRectSolid(bottomX, y + height, 0.0f, bottomWidth, bottom, clr);                                                    // bottom
-    if(radius.bottomRight != 0) C2D_Clay_FilledArc(bottomX + bottomWidth, y + height, radius.bottomRight, 0.0f, 90.0f, color); // bottom right
+    if(clampedRadii.bottomLeft > 0.0f) C2D_Clay_FilledArc(bottomX, y + height, clampedRadii.bottomLeft, 90.0f, 180.0f, color);               // bottom left
+    C2D_DrawRectSolid(bottomX, y + height, 0.0f, bottomWidth, bottom, clr);                                                                  // bottom
+    if(clampedRadii.bottomRight > 0.0f) C2D_Clay_FilledArc(bottomX + bottomWidth, y + height, clampedRadii.bottomRight, 0.0f, 90.0f, color); // bottom right
 }
 
 void C2D_Clay_Square(const Clay_BoundingBox bounds, const Clay_CornerRadius radius, const Clay_BorderWidth thickness, const Clay_Color color) {
@@ -181,11 +188,11 @@ void C2D_Clay_Square(const Clay_BoundingBox bounds, const Clay_CornerRadius radi
         const float startY = bounds.y + clampedRadii.topLeft;
         const float length = bounds.height - clampedRadii.topLeft - clampedRadii.bottomLeft;
 
-        C2D_DrawRectSolid(bounds.x - 1, startY, 0.0f, thickness.left, length, clr);
+        C2D_DrawRectSolid(bounds.x - (clampedRadii.topLeft > 0.0f), startY, 0.0f, thickness.left, length, clr);
     }
 
     if(thickness.right > 0) {
-        const float startX = bounds.x + bounds.width - static_cast<float>(thickness.right) + 1;
+        const float startX = bounds.x + bounds.width - static_cast<float>(thickness.right) + (clampedRadii.topRight > 0.0f);
         const float startY = bounds.y + clampedRadii.topRight;
         const float length = bounds.height - clampedRadii.topRight - clampedRadii.bottomRight;
 
@@ -195,12 +202,12 @@ void C2D_Clay_Square(const Clay_BoundingBox bounds, const Clay_CornerRadius radi
     if(thickness.top > 0) {
         const float startX = bounds.x + clampedRadii.topLeft;
         const float length = bounds.width - clampedRadii.topLeft - clampedRadii.topRight;
-        C2D_DrawRectSolid(startX, bounds.y - 1, 0.0f, length, thickness.top, clr);
+        C2D_DrawRectSolid(startX, bounds.y - (clampedRadii.topLeft > 0.0f || clampedRadii.topRight > 0.0f), 0.0f, length, thickness.top, clr);
     }
 
     if(thickness.bottom > 0) {
         const float startX = bounds.x + clampedRadii.bottomLeft;
-        const float startY = bounds.y + bounds.height - static_cast<float>(thickness.bottom) + 1;
+        const float startY = bounds.y + bounds.height - static_cast<float>(thickness.bottom) + (clampedRadii.bottomLeft > 0.0f);
         const float length = bounds.width - clampedRadii.bottomLeft - clampedRadii.bottomRight;
 
         C2D_DrawRectSolid(startX, startY, 0.0f, length, thickness.bottom, clr);

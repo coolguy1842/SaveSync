@@ -66,6 +66,17 @@ Result File::lastResult() const { return m_lastResult; }
         return __VA_ARGS__;                                                                             \
     }
 
+u32 File::attributes() {
+    CHECK_VALID(UINT32_MAX)
+
+    u32 attributes;
+    if(R_FAILED(m_lastResult = FSFILE_GetAttributes(m_handle, &attributes))) {
+        return UINT32_MAX;
+    }
+
+    return attributes;
+}
+
 u64 File::read(void* data, u32 max, u64 offset) {
     CHECK_VALID(U64_MAX)
 

@@ -28,32 +28,56 @@ bool QueuedRequest::operator==(const QueuedRequest& other) const {
 }
 
 void Client::startQueueWorker() {
-    if(m_valid) {
-        m_requestWorker->start();
+    if(!m_valid) {
+        return;
     }
+
+    m_requestWorker->start();
 }
 
-void Client::stopQueueWorker() {
-    if(m_valid) {
+void Client::stopQueueWorker(bool block) {
+    if(!m_valid) {
+        return;
+    }
+
+    m_requestWorker->signalShouldExit();
+    m_requestCondVar.broadcast();
+
+    if(block) {
         m_requestWorker->waitForExit();
     }
 }
 
 void Client::queueAction(QueuedRequest request) {
-    auto lock = m_requestCondVar.mutex().lock();
-    if(m_stagingRequestQueue.emplace(request).second) {
-        sendQueueChangedSignal();
-
-        lock.release();
-        m_requestCondVar.broadcast();
+    if(!m_valid) {
+        return;
     }
+
+    {
+        auto lock = m_requestCondVar.mutex().lock();
+        if(!m_requestQueue.emplace(request).second) {
+            return;
+        }
+
+        sendQueueChangedSignal();
+    }
+
+    m_requestCondVar.broadcast();
 }
 
 void Client::sendQueueChangedSignal() {
-    networkQueueChangedSignal(m_stagingRequestQueue.size() + m_requestQueue.size(), m_processingQueueRequest);
+    if(!m_valid) {
+        return;
+    }
+
+    networkQueueChangedSignal(m_requestQueue.size(), m_processingQueueRequest);
 }
 
 void Client::queueWorkerMain() {
+    if(!m_valid) {
+        return;
+    }
+
     bool checkOnline = false;
     while(!m_requestWorker->waitingForExit()) {
         if(!wifiEnabled()) {
@@ -68,11 +92,17 @@ void Client::queueWorkerMain() {
         }
 
         if(!serverOnline()) {
-            loadTitleInfoCache();
+            if(R_FAILED(loadTitleInfoCache()) || !serverOnline()) {
+                if(m_requestWorker->waitingForExit()) {
+                    return;
+                }
 
-            if(!serverOnline() || m_requestWorker->waitingForExit()) {
                 svcSleepThread(50 * static_cast<u64>(1e+6));
                 continue;
+            }
+
+            if(m_requestWorker->waitingForExit()) {
+                return;
             }
         }
 
@@ -92,20 +122,18 @@ void Client::queueWorkerMain() {
             queueAction({ .type = QueuedRequest::RELOAD_TITLE_CACHE });
         }
 
-        {
-            auto lock = m_requestCondVar.mutex().lock();
-            m_requestQueue.swap(m_stagingRequestQueue);
-        }
-
-        for(auto it = m_requestQueue.begin(); it != m_requestQueue.end() && serverOnline() && !m_requestWorker->waitingForExit();) {
-            const QueuedRequest& request = *it;
+        while(!m_requestQueue.empty()) {
+            const QueuedRequest request = *m_requestQueue.begin();
+            {
+                auto lock = m_requestCondVar.mutex().lock();
+                m_requestQueue.erase(m_requestQueue.begin());
+            }
 
             m_progressCurrent = 0;
             m_progressMax     = 0;
 
             if(request.type != QueuedRequest::RELOAD_TITLE_CACHE) {
                 if(!m_processRequests) {
-                    it++;
                     continue;
                 }
 
@@ -122,78 +150,45 @@ void Client::queueWorkerMain() {
 
             Result res;
             switch(request.type) {
-            case QueuedRequest::UPLOAD_SAVE:
-                m_requestStatus = std::format("Upload Save\n{}", request.title->longDescription());
-                requestStatusChangedSignal(m_requestStatus);
-
-                if(R_FAILED(res = upload(request.title, SAVE))) {
-                    if(res == Client::emptyUploadError()) {
-                        requestFailedSignal(std::format("No save files to upload\n{}", request.title->longDescription()));
+            case QueuedRequest::UPLOAD:
+                if(R_FAILED(res = upload(request.title))) {
+                    if(res == Client::emptyUploadError() || res == Client::noFilesUploadError()) {
+                        requestFailedSignal(std::format("No Files to Upload\n{}", request.title->name()));
+                        break;
                     }
-                    else {
-                        Logger::warn("Request Worker", "Failed to upload save {:X}", request.title->id());
-                        Logger::warn("Request Worker", res);
-
-                        m_processRequests = false;
-                        requestFailedSignal(std::format("Failed to Upload Save\n{}", request.title->longDescription()));
+                    else if(res == Client::finalizeUploadError()) {
+                        requestFailedSignal(std::format("Couldn't Finalize (part of?) the Upload\n{}", request.title->name()));
+                        break;
                     }
+
+                    Logger::warn("Request Worker", "Failed to Upload {:016X}", request.title->id());
+                    Logger::warn("Request Worker", res);
+
+                    m_processRequests = false;
+                    requestFailedSignal(std::format("Failed to Upload\n{}", request.title->name()));
                 }
 
                 break;
-            case QueuedRequest::DOWNLOAD_SAVE:
-                m_requestStatus = std::format("Download Save\n{}", request.title->longDescription());
-                requestStatusChangedSignal(m_requestStatus);
-
-                if(R_FAILED(res = download(request.title, SAVE))) {
+            case QueuedRequest::DOWNLOAD: {
+                if(R_FAILED(res = download(request.title))) {
                     if(res == Client::emptyDownloadError()) {
-                        requestFailedSignal(std::format("No save files to download\n{}", request.title->longDescription()));
+                        requestFailedSignal(std::format("No Files to Download\n{}", request.title->name()));
+                        break;
                     }
-                    else {
-                        Logger::warn("Request Worker", "Failed to download save {:X}", request.title->id());
-                        Logger::warn("Request Worker", res);
+                    else if(res == Client::finalizeDownloadError()) {
+                        requestFailedSignal(std::format("Couldn't Finalize (part of?) the Download\n{}", request.title->name()));
+                        break;
+                    }
 
-                        m_processRequests = false;
-                        requestFailedSignal(std::format("Failed to Download Save\n{}", request.title->longDescription()));
-                    }
+                    Logger::warn("Request Worker", "Failed to Download {:016X}", request.title->id());
+                    Logger::warn("Request Worker", res);
+
+                    m_processRequests = false;
+                    requestFailedSignal(std::format("Failed to Download\n{}", request.title->name()));
                 }
 
                 break;
-            case QueuedRequest::UPLOAD_EXTDATA:
-                m_requestStatus = std::format("Upload Ext\n{}", request.title->longDescription());
-                requestStatusChangedSignal(m_requestStatus);
-
-                if(R_FAILED(res = upload(request.title, EXTDATA))) {
-                    if(res == Client::emptyUploadError()) {
-                        requestFailedSignal(std::format("No extdata files to upload\n{}", request.title->longDescription()));
-                    }
-                    else {
-                        Logger::warn("Request Worker", "Failed to upload extdata {:X}", request.title->id());
-                        Logger::warn("Request Worker", res);
-
-                        m_processRequests = false;
-                        requestFailedSignal(std::format("Failed to Upload Extdata\n{}", request.title->longDescription()));
-                    }
-                }
-
-                break;
-            case QueuedRequest::DOWNLOAD_EXTDATA:
-                m_requestStatus = std::format("Download Ext\n{}", request.title->longDescription());
-                requestStatusChangedSignal(m_requestStatus);
-
-                if(R_FAILED(res = download(request.title, EXTDATA))) {
-                    if(res == Client::emptyDownloadError()) {
-                        requestFailedSignal(std::format("No extdata files to download\n{}", request.title->longDescription()));
-                    }
-                    else {
-                        Logger::warn("Request Worker", "Failed to download extdata {:X}", request.title->id());
-                        Logger::warn("Request Worker", res);
-
-                        m_processRequests = false;
-                        requestFailedSignal(std::format("Failed to Download Extdata\n{}", request.title->longDescription()));
-                    }
-                }
-
-                break;
+            }
             case QueuedRequest::RELOAD_TITLE_CACHE: loadTitleInfoCache(); break;
             default:                                break;
             }
@@ -202,9 +197,6 @@ void Client::queueWorkerMain() {
             m_processingQueueRequest = false;
 
             if(request.type != QueuedRequest::RELOAD_TITLE_CACHE) {
-                m_requestStatus = std::format("");
-                requestStatusChangedSignal(m_requestStatus);
-
                 aptSetHomeAllowed(true);
                 aptSetSleepAllowed(true);
             }
@@ -212,10 +204,7 @@ void Client::queueWorkerMain() {
                 m_showRequestProgress = true;
             }
 
-            it = m_requestQueue.erase(it);
             sendQueueChangedSignal();
         }
-
-        m_requestQueue.clear();
     }
 }

@@ -75,6 +75,12 @@ bool Archive::mkdir(std::u16string path, u32 attributes, bool recursive) {
     return R_SUCCEEDED(m_lastResult) || R_SUMMARY(m_lastResult) == RS_NOP;
 }
 
+bool Archive::createFile(VarPath path, u64 size, u32 attributes) {
+    CHECK_VALID(false)
+
+    return R_SUCCEEDED(m_lastResult = FSUSER_CreateFile(m_handle, path.path, attributes, size));
+}
+
 std::shared_ptr<Directory> Archive::openDirectory(std::u16string path) {
     CHECK_VALID(nullptr)
 

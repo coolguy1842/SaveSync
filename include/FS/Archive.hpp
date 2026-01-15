@@ -7,6 +7,9 @@
 #include <memory>
 #include <string>
 
+#define DATA_DIRECTORY   "/3ds/" EXE_NAME
+#define DATA_DIRECTORY_U u"/3ds/" EXE_NAME
+
 class Directory;
 class File;
 class Archive : public std::enable_shared_from_this<Archive> {
@@ -23,6 +26,7 @@ public:
     Result lastResult() const;
 
     bool mkdir(std::u16string path, u32 attributes, bool recursive = false);
+    bool createFile(VarPath path, u64 size, u32 attributes);
 
     std::shared_ptr<Directory> openDirectory(std::u16string path = u"/");
     std::shared_ptr<File> openFile(VarPath path, u32 flags, u32 attributes);

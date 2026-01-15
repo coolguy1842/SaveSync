@@ -3,15 +3,12 @@
 
 #include <Application.hpp>
 #include <Cache.hpp>
-#include <Client.hpp>
-#include <Debug/ExceptionHandler.hpp>
 #include <Debug/LeakDetector.h>
 #include <Debug/LeakViewerApplication.hpp>
 #include <Debug/Logger.hpp>
-#include <Debug/SymbolUtils.h>
-#include <malloc.h>
-#include <memory>
-#include <ptmplays.h>
+#include <ext_ptmplays.h>
+#include <format>
+#include <string>
 #include <timestamp.h>
 
 int main() {
@@ -31,6 +28,9 @@ int main() {
     if(!aptShouldClose() && isDetectingLeaks()) {
         LeakViewerApplication app;
         while(app.loop()) {}
+    }
+    else {
+        Logger::closeLogFile();
     }
 
     return 0;

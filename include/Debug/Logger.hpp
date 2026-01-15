@@ -57,6 +57,7 @@ private:
     static inline void logMessageLM(Level level, std::string module, format_string<Args...> fmt, Args&&... args) {
         fileLogMessage(std::format("{} [{}] {}\n", levelName(level), module, std::format(fmt, std::forward<Args>(args)...)));
 #if defined(DEBUG)
+        auto lock = s_logMutex.lock();
         printf("%s%s%s [%s] %s\n", levelColor(level), levelName(level), resetColor, module.c_str(), std::format(fmt, std::forward<Args>(args)...).c_str());
 #endif
     }
@@ -65,6 +66,7 @@ private:
     static inline void logMessageL(Level level, format_string<Args...> fmt, Args&&... args) {
         fileLogMessage(std::format("{} {}\n", levelName(level), std::format(fmt, std::forward<Args>(args)...)));
 #if defined(DEBUG)
+        auto lock = s_logMutex.lock();
         printf("%s%s%s %s\n", levelColor(level), levelName(level), resetColor, std::format(fmt, std::forward<Args>(args)...).c_str());
 #endif
     }
@@ -73,6 +75,7 @@ private:
     static inline void logMessageM(std::string module, format_string<Args...> fmt, Args&&... args) {
         fileLogMessage(std::format("[{}] {}\n", module.c_str(), std::format(fmt, std::forward<Args>(args)...)));
 #if defined(DEBUG)
+        auto lock = s_logMutex.lock();
         printf("[%s] %s\n", module.c_str(), std::format(fmt, std::forward<Args>(args)...).c_str());
 #endif
     }
@@ -81,6 +84,7 @@ private:
     static inline void logMessage(format_string<Args...> fmt, Args&&... args) {
         fileLogMessage(std::format(fmt, std::forward<Args>(args)...) + "\n");
 #if defined(DEBUG)
+        auto lock = s_logMutex.lock();
         printf("%s\n", std::format(fmt, std::forward<Args>(args)...).c_str());
 #endif
     }
@@ -97,6 +101,7 @@ private:
     static bool s_dirInitialized;
     static bool s_dirExists;
 
+    static Mutex s_logMutex;
     static Mutex s_fileMutex;
     static std::shared_ptr<File> s_file;
 };

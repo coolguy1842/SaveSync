@@ -1,35 +1,34 @@
 #include <Debug/Logger.hpp>
 #include <Debug/Profiler.hpp>
 #include <TitleLoader.hpp>
+#include <Util/EmuUtil.hpp>
 #include <Util/StringUtil.hpp>
 #include <map>
 
+// hopefully enough
+constexpr size_t maxHashBufSize = 0x10000;
 TitleLoader::TitleLoader()
     : m_lastCardID(0)
     , m_cardWorker(std::make_unique<Worker>([this](Worker*) { cardWorkerMain(); }, 2, 0x1000, Worker::SYSCORE))
-    , m_loaderWorker(std::make_unique<Worker>([this](Worker*) { loadWorkerMain(); }, 4, 0x10000, Worker::APPCORE))
-    , m_hashWorker(std::make_unique<Worker>([this](Worker*) { hashWorkerMain(); }, 3, 0x3000, Worker::APPCORE))
-    , p_AM(Services::AM()) {
+    , m_loaderWorker(std::make_unique<Worker>([this](Worker*) { loadWorkerMain(); }, 4, maxHashBufSize + 0x6000, Worker::APPCORE))
+    , m_hashWorker(std::make_unique<Worker>([this](Worker*) { hashWorkerMain(); }, 3, maxHashBufSize + 0x2000, Worker::APPCORE)) {
     // needed for SYSCORE thread
     APT_SetAppCpuTimeLimit(5);
     reloadTitles();
 }
 
 TitleLoader::~TitleLoader() {
-
     titlesLoadedChangedSignal.clear();
     titlesFinishedLoadingSignal.clear();
     titleHashedSignal.clear();
 
+    m_loaderWorker->signalShouldExit();
+    m_hashWorker->signalShouldExit();
     m_cardWorker->signalShouldExit();
     m_condVar.broadcast();
 
     m_loaderWorker->waitForExit();
-    m_loaderWorker.reset();
-
     m_hashWorker->waitForExit();
-    m_hashWorker.reset();
-
     m_cardWorker->waitForExit();
 }
 
@@ -47,8 +46,11 @@ size_t TitleLoader::totalTitles() const { return m_totalTitles; }
 size_t TitleLoader::titlesLoaded() const { return m_titlesLoaded; }
 
 bool TitleLoader::isLoadingTitles() const { return m_loaderWorker->running(); }
-
 bool TitleLoader::loadGameCardTitle() {
+    if(EmulatorUtil::isEmulated()) {
+        return false;
+    }
+
     auto cleanupLastCard = [this]() {
         if(m_lastCardID == 0) {
             return;
@@ -102,11 +104,11 @@ bool TitleLoader::loadGameCardTitle() {
     cleanupLastCard();
 
     m_lastCardID = id;
-    Logger::info("Card Worker", "Loading {:X}", id);
+    Logger::info("Card Worker", "Loading {:016X}", id);
 
     std::shared_ptr<Title> title = std::make_shared<Title>(id, MEDIATYPE_GAME_CARD, CARD_CTR);
     if(title == nullptr || !title->valid()) {
-        Logger::info("Card Worker", "{:X} Invalid", id);
+        Logger::info("Card Worker", "{:016X} Invalid", id);
         return false;
     }
 
@@ -133,7 +135,8 @@ void TitleLoader::loadSDTitles(u32 numTitles) {
     if(numTitles == 0) {
         return;
     }
-    else if(numTitles == UINT32_MAX) {
+
+    if(numTitles == UINT32_MAX) {
         if(R_FAILED(res = AM_GetTitleCount(MEDIATYPE_SD, &numTitles))) {
             Logger::warn("Load SD Titles", "Failed to get title count");
             Logger::warn("Load SD Titles", res);
@@ -142,7 +145,7 @@ void TitleLoader::loadSDTitles(u32 numTitles) {
     }
 
     std::vector<u64> ids(numTitles);
-    if(R_FAILED(res = AM_GetTitleList(&numTitles, MEDIATYPE_SD, numTitles, ids.data()))) {
+    if(R_FAILED(res = AM_GetTitleList(&numTitles, MEDIATYPE_SD, ids.size(), ids.data()))) {
         Logger::warn("Load SD Titles", "Failed to get SDCard title list");
         Logger::warn("Load SD Titles", res);
 
@@ -150,7 +153,7 @@ void TitleLoader::loadSDTitles(u32 numTitles) {
     }
 
     for(u64 id : ids) {
-        Logger::info("Load SD Titles", "Loading {:X}", id);
+        Logger::info("Load SD Titles", "Loading {:016X}", id);
 
         if(m_loaderWorker->waitingForExit()) {
             Logger::info("Load SD Titles", "Exiting early");
@@ -228,9 +231,11 @@ void TitleLoader::loadWorkerMain() {
 
     Logger::info("Load Worker", "Loaded {} titles", m_titles.size());
     titlesFinishedLoadingSignal();
-    reloadHashes();
+    if(!EmulatorUtil::isEmulated()) {
+        m_cardWorker->start();
+    }
 
-    m_cardWorker->start();
+    reloadHashes();
 }
 
 enum Priority {
@@ -243,14 +248,12 @@ void TitleLoader::hashWorkerMain() {
     Logger::info("Hash Worker", "Hashing all titles");
 
     PROFILE_SCOPE("Hash All Titles");
-    std::map<Priority, std::vector<std::pair<std::shared_ptr<Title>, Container>>> containers = {
+    std::map<Priority, std::vector<std::shared_ptr<Title>>> priorities = {
         { HIGH, {} },
         { MEDIUM, {} },
-        { LOW, {} }
     };
 
     std::vector<std::shared_ptr<Title>> titles;
-
     {
         auto lock = m_titlesMutex.lock();
         titles    = m_titles;
@@ -261,6 +264,7 @@ void TitleLoader::hashWorkerMain() {
             continue;
         }
 
+        bool hasAnyHash = false, allHashed = true;
         for(Container type : { SAVE, EXTDATA }) {
             if(m_hashWorker->waitingForExit()) {
                 Logger::info("Hash Worker", "Exiting early");
@@ -278,7 +282,6 @@ void TitleLoader::hashWorkerMain() {
                 continue;
             }
 
-            bool hasAnyHash = false, allHashed = true;
             for(auto file : files) {
                 if(!file.hash.has_value()) {
                     allHashed = false;
@@ -293,21 +296,39 @@ void TitleLoader::hashWorkerMain() {
 
                 hasAnyHash = true;
             }
-
-            containers[hasAnyHash ? (allHashed ? LOW : MEDIUM) : HIGH].push_back({ title, type });
         }
+
+        if(allHashed) {
+            continue;
+        }
+
+        priorities[hasAnyHash ? MEDIUM : HIGH].push_back(title);
     }
 
-    for(const auto& entry : containers) {
-        for(const auto& pair : entry.second) {
-            pair.first->hashContainer(pair.second);
+    // must do 0x1000 bytes at a time (1 block), or will miss out on non invalid data
+    // as far as i have tested, azahar doesn't emulate the invalid data, so we can use bigger blocks for azahar
+    size_t bufSize = 0x1000;
+    if(EmulatorUtil::isEmulated()) {
+        bufSize = maxHashBufSize;
+    }
 
+    std::shared_ptr<u8> hashBuf;
+    hashBuf.reset(reinterpret_cast<u8*>(malloc(bufSize)));
+
+    for(auto& titleList : priorities) {
+        std::sort(titleList.second.begin(), titleList.second.end(), [](const std::shared_ptr<Title>& a, const std::shared_ptr<Title>& b) {
+            return a->totalContainerSize(SAVE) + a->totalContainerSize(EXTDATA) < b->totalContainerSize(SAVE) + b->totalContainerSize(EXTDATA);
+        });
+
+        for(const auto& title : titleList.second) {
+            title->hashContainer(SAVE, hashBuf, bufSize, m_hashWorker.get());
+            title->hashContainer(EXTDATA, hashBuf, bufSize, m_hashWorker.get());
             if(m_hashWorker->waitingForExit()) {
                 Logger::info("Hash Worker", "Exiting early");
                 return;
             }
 
-            titleHashedSignal(pair.first, pair.second);
+            titleHashedSignal(title);
         }
     }
 

@@ -25,37 +25,37 @@ void Application::tryUpdateClientURL(bool processing) {
 }
 
 bool filesEqual(std::vector<FileInfo> a, std::vector<FileInfo> b) { return std::equal(a.begin(), a.end(), b.begin(), b.end()); }
-void Application::checkTitleOutOfDate(std::shared_ptr<Title> title, Container) {
+void Application::checkTitleOutOfSync(std::shared_ptr<Title> title, Container) {
     if(!m_client->cachedTitleInfoLoaded()) {
-        title->setOutOfDate(0);
+        title->setOutOfSync(0);
         return;
     }
 
     const std::unordered_map<u64, TitleInfo> cache = m_client->cachedTitleInfo();
 
-    auto it = cache.find(title->id());
+    auto it = cache.find(title->uniqueID());
     if(it == cache.end()) {
-        title->setOutOfDate((title->getContainerFiles(SAVE).empty() ? 0 : SAVE) | (title->getContainerFiles(EXTDATA).empty() ? 0 : EXTDATA));
+        title->setOutOfSync((title->getContainerFiles(SAVE).empty() ? 0 : SAVE) | (title->getContainerFiles(EXTDATA).empty() ? 0 : EXTDATA));
         return;
     }
 
-    u8 outOfDate = 0;
+    u8 outOfSync = 0;
 
     TitleInfo info = it->second;
     if(!filesEqual(title->getContainerFiles(SAVE), it->second.save)) {
-        outOfDate |= SAVE;
+        outOfSync |= SAVE;
     }
 
     if(!filesEqual(title->getContainerFiles(EXTDATA), it->second.extdata)) {
-        outOfDate |= EXTDATA;
+        outOfSync |= EXTDATA;
     }
 
-    title->setOutOfDate(outOfDate);
+    title->setOutOfSync(outOfSync);
 }
 
-void Application::checkTitlesOutOfDate() {
+void Application::checkTitlesOutOfSync() {
     for(auto title : m_loader->titles()) {
-        checkTitleOutOfDate(title);
+        checkTitleOutOfSync(title);
     }
 }
 
@@ -125,7 +125,7 @@ Application::Application(bool consoleEnabled, gfxScreen_t consoleScreen)
 
     m_config = std::make_shared<Config>();
     m_loader = std::make_shared<TitleLoader>();
-    m_client = std::make_shared<Client>();
+    m_client = std::make_shared<Client>(m_loader);
 
     updateURL();
 
@@ -135,10 +135,10 @@ Application::Application(bool consoleEnabled, gfxScreen_t consoleScreen)
         m_config->serverPort()->changedEmptySignal.connect([this, config = m_config, client = m_client]() noexcept { updateURL(); }),
 
         m_client->networkQueueChangedSignal.connect([this, client = m_client](const size_t&, const bool& processing) noexcept { tryUpdateClientURL(processing); }),
-        m_client->titleCacheChangedSignal.connect([this, loader = m_loader, client = m_client]() noexcept { checkTitlesOutOfDate(); }),
+        m_client->titleCacheChangedSignal.connect([this, loader = m_loader, client = m_client]() noexcept { checkTitlesOutOfSync(); }),
 
-        m_loader->titlesFinishedLoadingSignal.connect([this, loader = m_loader, client = m_client]() noexcept { checkTitlesOutOfDate(); }),
-        m_loader->titleHashedSignal.connect([this, loader = m_loader, client = m_client](const std::shared_ptr<Title>& title, const Container&) noexcept { checkTitleOutOfDate(title); })
+        m_loader->titlesFinishedLoadingSignal.connect([this, loader = m_loader, client = m_client]() noexcept { checkTitlesOutOfSync(); }),
+        m_loader->titleHashedSignal.connect([this, loader = m_loader, client = m_client](const std::shared_ptr<Title>& title) noexcept { checkTitleOutOfSync(title); })
     };
 
     m_client->startQueueWorker();
@@ -151,14 +151,16 @@ Application::~Application() {
     aptSetHomeAllowed(true);
     aptSetSleepAllowed(true);
 
-    m_client->stopQueueWorker();
-
+    m_client->stopQueueWorker(false);
     m_mainScreen.reset();
+
     m_client.reset();
     m_loader.reset();
     m_config.reset();
-
     m_connections.disconnect();
+
+    aptSetHomeAllowed(true);
+    aptSetSleepAllowed(true);
 
 #ifdef DEBUG
     if(m_consoleInitialized && (!m_consoleEnabled || m_consoleScreen != DefaultScreen)) {
@@ -181,6 +183,8 @@ Application::~Application() {
         threadOnException(NULL, NULL, NULL);
         free(m_exceptionHandlerStack);
     }
+
+    Logger::info("Application", "Closed Application");
 }
 
 void Application::update() {
