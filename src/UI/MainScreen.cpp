@@ -489,12 +489,12 @@ void MainScreen::ListLayout() {
                     int lenCur = StringUtil::formatFileSize(m_client->requestProgressCurrent(), sizeText, sizeof(sizeText));
                     int lenMax = StringUtil::formatFileSize(m_client->requestProgressMax(), sizeText + lenCur, sizeof(sizeText) - static_cast<size_t>(lenCur));
 
-                    Clay_String curStr = { .isStaticallyAllocated = true, .length = static_cast<int32_t>(lenCur), .chars = sizeText };
+                    Clay_String curStr = { .isStaticallyAllocated = true, .length = lenCur, .chars = sizeText };
                     CLAY_TEXT(curStr, textConfig);
 
                     CLAY_AUTO_ID({ .layout = { .sizing = { .width = CLAY_SIZING_GROW(), .height = CLAY_SIZING_FIXED(2) } }, .backgroundColor = Theme::ButtonDisabled() });
 
-                    Clay_String maxStr = { .isStaticallyAllocated = true, .length = static_cast<int32_t>(lenMax), .chars = sizeText + lenCur };
+                    Clay_String maxStr = { .isStaticallyAllocated = false, .length = lenMax, .chars = sizeText + lenCur };
                     CLAY_TEXT(maxStr, textConfig);
                 }
             }
@@ -560,10 +560,10 @@ void MainScreen::renderTop() {
                 time_t timeInfo;
                 time(&timeInfo);
 
-                char clock[50];
-                size_t clockLen = strftime(clock, sizeof(clock), "%H:%M", localtime(&timeInfo));
+                char clockText[6];
+                size_t clockLen = strftime(clockText, sizeof(clockText), "%H:%M", localtime(&timeInfo));
 
-                Clay_String clockStr = { .isStaticallyAllocated = true, .length = static_cast<int32_t>(clockLen), .chars = clock };
+                Clay_String clockStr = { .isStaticallyAllocated = false, .length = static_cast<int32_t>(clockLen), .chars = clockText };
                 CLAY_TEXT(clockStr, textConfig);
 
                 if(!EmulatorUtil::isEmulated()) {
@@ -718,7 +718,7 @@ void MainScreen::renderTop() {
                                 .height = CLAY_SIZING_GROW(),
                             },
                             .padding        = { 4, 4, 20, 20 },
-                            .childGap       = 2,
+                            .childGap       = 4,
                             .childAlignment = {
                                 .x = CLAY_ALIGN_X_CENTER,
                             },
@@ -727,27 +727,48 @@ void MainScreen::renderTop() {
                         .backgroundColor = Theme::Surface1(),
                     }
                 ) {
+                    Clay_TextElementConfig* largeTextConfig  = CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 18, .textAlignment = CLAY_TEXT_ALIGN_CENTER });
+                    Clay_TextElementConfig* textConfig       = CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12, .textAlignment = CLAY_TEXT_ALIGN_CENTER });
+                    Clay_TextElementConfig* textConfigDarker = CLAY_TEXT_CONFIG({ .textColor = Theme::Subtext2(), .fontSize = 12, .textAlignment = CLAY_TEXT_ALIGN_CENTER });
+                    Clay_TextElementConfig* smallTextConfig  = CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 11, .textAlignment = CLAY_TEXT_ALIGN_CENTER });
+
                     const char* text = request.title->staticName();
                     Clay_String str  = { .isStaticallyAllocated = false, .length = static_cast<int32_t>(strlen(text)), .chars = text };
 
-                    CLAY_TEXT(str, CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 18, .textAlignment = CLAY_TEXT_ALIGN_CENTER }));
-                    VSPACER();
-
-                    Clay_TextElementConfig* textConfig = CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12 });
-                    Clay_Color networkColor            = Theme::Unknown();
+                    CLAY_TEXT(str, largeTextConfig);
+                    Clay_Color networkColor = Theme::Unknown();
 
                     switch(request.type) {
                     case QueuedRequest::UPLOAD:
-                        CLAY_TEXT(CLAY_STRING("Uploading"), textConfig);
+                        CLAY_TEXT(CLAY_STRING("Uploading"), textConfigDarker);
                         networkColor = Theme::Upload();
 
                         break;
                     case QueuedRequest::DOWNLOAD:
-                        CLAY_TEXT(CLAY_STRING("Downloading"), textConfig);
+                        CLAY_TEXT(CLAY_STRING("Downloading"), textConfigDarker);
                         networkColor = Theme::Download();
 
                         break;
                     default: break;
+                    }
+
+                    VSPACER();
+
+                    CLAY_AUTO_ID({ .layout = { .childGap = 2 } }) {
+                        const char* separatorText = " / ";
+
+                        char networkProgressText[32];
+                        int lenCur = StringUtil::formatFileSize(m_client->requestProgressCurrent(), networkProgressText, sizeof(networkProgressText));
+                        int offset = lenCur;
+
+                        if(offset < static_cast<int>(sizeof(networkProgressText))) {
+                            strcpy(networkProgressText + offset, separatorText);
+                            offset += static_cast<int32_t>(sizeof(separatorText)) - 1;
+                            offset += StringUtil::formatFileSize(m_client->requestProgressMax(), networkProgressText + offset, sizeof(networkProgressText) - static_cast<size_t>(offset));
+
+                            Clay_String networkProgressStr = { .isStaticallyAllocated = true, .length = offset, .chars = networkProgressText };
+                            CLAY_TEXT(networkProgressStr, smallTextConfig);
+                        }
                     }
 
                     float percent = m_client->requestProgressCurrent() / static_cast<float>(CLAY__MAX(m_client->requestProgressMax(), 1.0f));
@@ -797,48 +818,47 @@ void MainScreen::renderTop() {
                         }
                     }
 
-                    char percentText[5];
+                    char progressPercentText[5];
+                    int lenPercent = snprintf(progressPercentText, sizeof(progressPercentText), "%d%%", static_cast<int>(percent * 100));
 
-                    int32_t len            = snprintf(percentText, sizeof(percentText), "%d%%", static_cast<int>(percent * 100));
-                    Clay_String percentStr = { .isStaticallyAllocated = true, .length = len, .chars = percentText };
-
+                    Clay_String percentStr = { .isStaticallyAllocated = true, .length = lenPercent, .chars = progressPercentText };
                     CLAY_TEXT(percentStr, textConfig);
                 }
             }
         }
+    }
 
-        CLAY(
-            CLAY_ID("Footer"),
-            {
-                .layout = {
-                    .sizing = {
-                        .width  = CLAY_SIZING_GROW(),
-                        .height = CLAY_SIZING_FIXED(16),
-                    },
-                    .padding        = CLAY_PADDING_ALL(4),
-                    .childGap       = 1,
-                    .childAlignment = { .y = CLAY_ALIGN_Y_CENTER },
+    CLAY(
+        CLAY_ID("Footer"),
+        {
+            .layout = {
+                .sizing = {
+                    .width  = CLAY_SIZING_GROW(),
+                    .height = CLAY_SIZING_FIXED(16),
                 },
-                .backgroundColor = Theme::Surface2(),
-            }
-        ) {
-            Clay_TextElementConfig* textConfig = CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12 });
-            HSPACER();
-
-            BADGE(Theme::OutOfSync());
-            CLAY_TEXT(CLAY_STRING("Unsynced"), textConfig);
-
-            HSPACER();
-
-            BADGE(Theme::Unknown());
-            CLAY_TEXT(CLAY_STRING("Unknown"), textConfig);
-
-            HSPACER();
+                .padding        = CLAY_PADDING_ALL(4),
+                .childGap       = 1,
+                .childAlignment = { .y = CLAY_ALIGN_Y_CENTER },
+            },
+            .backgroundColor = Theme::Surface2(),
         }
+    ) {
+        Clay_TextElementConfig* textConfig = CLAY_TEXT_CONFIG({ .textColor = Theme::Text(), .fontSize = 12 });
+        HSPACER();
 
-        if(m_yesNoActive || m_okActive || m_settingsScreen->isActive()) {
-            YES_NO_OVERLAY;
-        }
+        BADGE(Theme::OutOfSync());
+        CLAY_TEXT(CLAY_STRING("Unsynced"), textConfig);
+
+        HSPACER();
+
+        BADGE(Theme::Unknown());
+        CLAY_TEXT(CLAY_STRING("Unknown"), textConfig);
+
+        HSPACER();
+    }
+
+    if(m_yesNoActive || m_okActive || m_settingsScreen->isActive()) {
+        YES_NO_OVERLAY;
     }
 }
 

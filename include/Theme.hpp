@@ -15,6 +15,7 @@ COLOR(Unknown)
 COLOR(Text)
 COLOR(Subtext0)
 COLOR(Subtext1)
+COLOR(Subtext2)
 
 COLOR(Red)
 COLOR(Green)

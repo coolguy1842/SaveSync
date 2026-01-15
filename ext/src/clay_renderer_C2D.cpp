@@ -22,12 +22,11 @@ struct CacheEntry {
 
 // key is clay id, use ptr to clear memory fully
 static std::map<uint32_t, CacheEntry> s_textCache;
-
 void C2D_Clay_Init() {
     gfxInitDefault();
 
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
-    C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
+    C2D_Init(0x4000);
 
     C2D_Prepare();
 }
