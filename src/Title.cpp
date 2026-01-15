@@ -239,7 +239,11 @@ std::vector<FileInfo>& Title::containerFiles(Container container) {
     }
 }
 
-void Title::setContainerFiles(std::vector<FileInfo>& files, Container container) {
+void Title::updateCache() {
+    saveCache();
+}
+
+void Title::setContainerFiles(const std::vector<FileInfo>& files, Container container, bool updateCache) {
     if(!m_valid) return;
 
     switch(container) {
@@ -256,7 +260,9 @@ void Title::setContainerFiles(std::vector<FileInfo>& files, Container container)
     default: return;
     }
 
-    saveCache();
+    if(updateCache) {
+        saveCache();
+    }
 }
 
 void Title::loadContainerFiles(Container container, bool cache, std::shared_ptr<Archive> archive, bool shouldLock) {
@@ -762,6 +768,8 @@ bool Title::loadCache() {
             .path = pathStr,
             .hash = hashStr,
             .size = size,
+
+            ._shouldUpdateHash = true,
         };
 
         switch(container) {

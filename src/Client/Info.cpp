@@ -41,6 +41,7 @@ void Client::clearTitleInfoCache() {
     m_cachedTitleInfo.clear();
 }
 
+// TODO: the bigger the title list, the more chance for invalid data, need to figure out why rapidjson isnt using stream properly
 Result Client::loadTitleInfoCache() {
     rapidjson::Document document;
     CURLEasy easy(CURLEasyOptions{

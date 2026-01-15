@@ -170,48 +170,21 @@ void Client::queueWorkerMain() {
 
                 break;
             case QueuedRequest::DOWNLOAD: {
-                bool bothEmpty = true;
-
-                if(!request.title->containerAccessible(SAVE)) {
-                    goto skipSaveDownload;
-                }
-
-                if(R_FAILED(res = download(request.title, SAVE))) {
-                    if(res != Client::emptyDownloadError()) {
-                        Logger::warn("Request Worker", "Failed to Download Save {:016X}", request.title->id());
-                        Logger::warn("Request Worker", res);
-
-                        m_processRequests = false;
-                        requestFailedSignal(std::format("Failed to Download Save\n{}", request.title->name()));
-
+                if(R_FAILED(res = download(request.title))) {
+                    if(res == Client::emptyDownloadError()) {
+                        requestFailedSignal(std::format("No Files to Download\n{}", request.title->name()));
                         break;
                     }
-                }
-                else {
-                    bothEmpty = false;
-                }
-
-            skipSaveDownload:
-                if(!request.title->containerAccessible(EXTDATA)) {
-                    goto skipExtdataDownload;
-                }
-
-                if(R_FAILED(res = download(request.title, EXTDATA))) {
-                    if(res != Client::emptyDownloadError()) {
-                        Logger::warn("Request Worker", "Failed to Download Extdata {:016X}", request.title->id());
-                        Logger::warn("Request Worker", res);
-
-                        m_processRequests = false;
-                        requestFailedSignal(std::format("Failed to Download Extdata\n{}", request.title->name()));
+                    else if(res == Client::finalizeDownloadError()) {
+                        requestFailedSignal(std::format("Couldn't Finalize (part of?) the Download\n{}", request.title->name()));
+                        break;
                     }
-                }
-                else {
-                    bothEmpty = false;
-                }
 
-            skipExtdataDownload:
-                if(bothEmpty) {
-                    requestFailedSignal(std::format("No Files to Download\n{}", request.title->name()));
+                    Logger::warn("Request Worker", "Failed to Download {:016X}", request.title->id());
+                    Logger::warn("Request Worker", res);
+
+                    m_processRequests = false;
+                    requestFailedSignal(std::format("Failed to Download\n{}", request.title->name()));
                 }
 
                 break;

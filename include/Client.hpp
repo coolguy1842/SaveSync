@@ -5,6 +5,7 @@
 #include <curl/curl.h>
 
 #include <Title.hpp>
+#include <TitleLoader.hpp>
 #include <Util/CondVar.hpp>
 #include <Util/Mutex.hpp>
 #include <Util/Worker.hpp>
@@ -39,7 +40,7 @@ struct QueuedRequest {
 
 class Client {
 public:
-    Client(std::string url = "");
+    Client(std::shared_ptr<TitleLoader> titleLoader, std::string url = "");
     ~Client();
 
     bool valid() const;
@@ -51,7 +52,7 @@ public:
     bool serverOnline();
 
     Result upload(std::shared_ptr<Title> title);
-    Result download(std::shared_ptr<Title> title, Container container);
+    Result download(std::shared_ptr<Title> title);
 
     std::unordered_map<u64, TitleInfo> cachedTitleInfo();
     bool cachedTitleInfoLoaded() const;
@@ -87,6 +88,7 @@ public:
     static Result emptyUploadError();
 
     static Result finalizeUploadError();
+    static Result finalizeDownloadError();
 
     static Result emptyDownloadError();
 
@@ -145,6 +147,9 @@ private:
 
     bool m_valid;
     std::string m_url;
+
+    // used to refresh title hash
+    std::shared_ptr<TitleLoader> m_titleLoader;
 
     std::unique_ptr<Worker> m_requestWorker;
     std::set<QueuedRequest> m_requestQueue;

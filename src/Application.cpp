@@ -125,7 +125,7 @@ Application::Application(bool consoleEnabled, gfxScreen_t consoleScreen)
 
     m_config = std::make_shared<Config>();
     m_loader = std::make_shared<TitleLoader>();
-    m_client = std::make_shared<Client>();
+    m_client = std::make_shared<Client>(m_loader);
 
     updateURL();
 

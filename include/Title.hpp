@@ -86,7 +86,8 @@ public:
     void reloadContainerFiles(Container container);
     std::vector<FileInfo> getContainerFiles(Container container) const;
 
-    void setContainerFiles(std::vector<FileInfo>& files, Container container);
+    void updateCache();
+    void setContainerFiles(const std::vector<FileInfo>& files, Container container, bool updateCache = true);
     void hashContainer(Container container, std::shared_ptr<u8> buf = nullptr, size_t bufSize = 0x1000, Worker* worker = nullptr);
 
     Result deleteSecureSaveValue();

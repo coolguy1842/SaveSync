@@ -324,13 +324,11 @@ Result Client::upload(std::shared_ptr<Title> title) {
             continue;
         }
 
-        Logger::info("Upload", "Locking, and opening container: {}", getContainerName(container));
         ContainerInfo info = {
             .id      = container,
             .lock    = std::make_shared<ScopedLock>(title->containerMutex(container)),
             .archive = title->openContainer(container),
         };
-        Logger::info("Upload", "Locked, and opened");
 
         if(info.archive == nullptr || !info.archive->valid()) {
             continue;

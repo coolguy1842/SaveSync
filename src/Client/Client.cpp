@@ -76,9 +76,10 @@ void Client::closeSOC() {
     SOCInitialized = false;
 }
 
-Client::Client(std::string url)
+Client::Client(std::shared_ptr<TitleLoader> titleLoader, std::string url)
     : m_valid(false)
     , m_url(url)
+    , m_titleLoader(titleLoader)
     , m_requestWorker(std::make_unique<Worker>([this](Worker*) { queueWorkerMain(); }, 6, 0x15000))
     , m_serverOnline(false)
     , m_titleInfoCached(false)
